@@ -1,5 +1,5 @@
 """
-Загрузка файлов и изображений в S3.
+Загрузка файлов и изображений в S3. v2
 POST / — загрузить файл (base64 в теле), вернуть CDN URL
 """
 import json
@@ -27,7 +27,7 @@ ALLOWED_MIME = {
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
-MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_SIZE_BYTES = 4 * 1024 * 1024  # 4 MB (base64 overhead ~33%, stays under 6MB request limit)
 
 
 def get_conn():

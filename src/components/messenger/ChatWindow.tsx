@@ -95,8 +95,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart, onBa
       setUploadError('Тип файла не поддерживается');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('Файл слишком большой (макс. 10 МБ)');
+    if (file.size > 4 * 1024 * 1024) {
+      setUploadError('Файл слишком большой (макс. 4 МБ)');
       return;
     }
 
@@ -143,7 +143,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart, onBa
     if (!file) return;
     const isImage = file.type.startsWith('image/');
     if (!ALLOWED_TYPES[file.type]) { setUploadError('Тип файла не поддерживается'); return; }
-    if (file.size > 10 * 1024 * 1024) { setUploadError('Файл слишком большой (макс. 10 МБ)'); return; }
+    if (file.size > 4 * 1024 * 1024) { setUploadError('Файл слишком большой (макс. 4 МБ)'); return; }
     setUploadError('');
     setFilePreview({ file, previewUrl: isImage ? URL.createObjectURL(file) : null, isImage });
   }, []);
