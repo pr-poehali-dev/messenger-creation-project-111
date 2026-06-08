@@ -227,13 +227,13 @@ def handler(event: dict, context) -> dict:
             if not is_member(chat_id, user_id, conn):
                 return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Нет доступа'})}
 
-            display_text = text or file_name or 'Файл'
+            stored_text = text if text else (file_name or 'Файл')
 
             with conn.cursor() as cur:
                 cur.execute(
                     f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, type, file_url, file_name) "
                     f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, created_at",
-                    (chat_id, user_id, display_text, msg_type, file_url, file_name)
+                    (chat_id, user_id, stored_text, msg_type, file_url, file_name)
                 )
                 msg_id, created_at = cur.fetchone()
                 cur.execute(
@@ -249,7 +249,7 @@ def handler(event: dict, context) -> dict:
                     'id': msg_id, 'senderId': user_id, 'isMe': True,
                     'senderName': urow[0] if urow else '',
                     'senderAvatar': urow[1] if urow else '1',
-                    'text': display_text, 'type': msg_type,
+                    'text': stored_text, 'type': msg_type,
                     'fileUrl': file_url, 'fileName': file_name,
                     'time': created_at.strftime('%H:%M'), 'read': False,
                 }

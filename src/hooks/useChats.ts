@@ -94,7 +94,7 @@ export function useMessages(chatId: number | null) {
   const sendFileMessage = async (fileUrl: string, fileName: string, isImage: boolean) => {
     if (!chatId) return;
     const type = isImage ? 'image' : 'file';
-    const data = await api.sendFileMessage(chatId, fileName, fileUrl, fileName, type);
+    const data = await api.sendFileMessage(chatId, '', fileUrl, fileName, type);
     const msg = data.message as ApiMessage;
     setMessages(prev => [...prev, msg]);
   };
