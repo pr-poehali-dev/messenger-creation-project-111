@@ -30,6 +30,18 @@ async function request(
 
 // ---- Auth ----
 export const api = {
+  sendCode: (email: string, name: string, username: string, password: string, phone?: string) =>
+    request('auth', '/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, name, username, password, phone }),
+    }),
+
+  verifyCode: (email: string, code: string) =>
+    request('auth', '/verify-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
+    }),
+
   register: (name: string, username: string, password: string, phone?: string) =>
     request('auth', '/register', {
       method: 'POST',
