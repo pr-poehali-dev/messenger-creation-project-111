@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/context/useAuth';
 
 type Mode = 'login' | 'register';
 

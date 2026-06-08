@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '@/components/ui/icon';
 import Avatar from './Avatar';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/context/useAuth';
 
 const ProfilePage: React.FC = () => {
   const { user, updateUser, logout } = useAuth();
