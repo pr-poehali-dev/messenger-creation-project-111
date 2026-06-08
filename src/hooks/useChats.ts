@@ -50,6 +50,12 @@ export function useChats() {
     return () => clearInterval(interval);
   }, [fetchChats]);
 
+  // Update browser tab title with unread count
+  useEffect(() => {
+    const total = chats.reduce((sum, c) => sum + c.unread, 0);
+    document.title = total > 0 ? `(${total}) PULSE — Мессенджер` : 'PULSE — Мессенджер';
+  }, [chats]);
+
   return { chats, loading, error, refetch: fetchChats };
 }
 

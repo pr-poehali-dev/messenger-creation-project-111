@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/messenger/Sidebar';
 import ChatList from '@/components/messenger/ChatList';
 import ChatWindow from '@/components/messenger/ChatWindow';
@@ -6,7 +6,9 @@ import ContactsPage from '@/components/messenger/ContactsPage';
 import ProfilePage from '@/components/messenger/ProfilePage';
 import EmptyState from '@/components/messenger/EmptyState';
 import CallOverlay from '@/components/messenger/CallOverlay';
+import Icon from '@/components/ui/icon';
 import { useChats } from '@/hooks/useChats';
+import { useNotificationPermission, useNewMessageNotifications } from '@/hooks/useNotifications';
 
 type Tab = 'chats' | 'contacts' | 'profile';
 
@@ -20,13 +22,38 @@ const Index: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('chats');
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [call, setCall] = useState<CallState>({ active: false, type: 'voice', chatName: '' });
+  const [showNotifBanner, setShowNotifBanner] = useState(false);
   const { chats, refetch: refetchChats } = useChats();
+  const { permission, request: requestPermission } = useNotificationPermission();
 
-  const startCall = (type: 'voice' | 'video', chatName: string) => {
-    setCall({ active: true, type, chatName });
+  // Track new messages and fire browser notifications
+  useNewMessageNotifications(chats, activeChatId);
+
+  // Show permission banner once if not yet decided
+  useEffect(() => {
+    if (!('Notification' in window)) return;
+    if (permission === 'default') {
+      const timer = setTimeout(() => setShowNotifBanner(true), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [permission]);
+
+  const handleAllowNotifications = async () => {
+    const granted = await requestPermission();
+    setShowNotifBanner(false);
+    if (granted) {
+      new Notification('PULSE', {
+        body: 'Уведомления включены! Вы будете в курсе новых сообщений.',
+        icon: '/favicon.svg',
+      });
+    }
   };
 
   const totalUnread = chats.reduce((sum, c) => sum + c.unread, 0);
+
+  function endCall() {
+    setCall({ active: false, type: 'voice', chatName: '' });
+  }
 
   return (
     <div
@@ -49,7 +76,7 @@ const Index: React.FC = () => {
                 ? <ChatWindow
                     chatId={activeChatId}
                     chat={chats.find(c => c.id === activeChatId)}
-                    onCallStart={startCall}
+                    onCallStart={(type, name) => setCall({ active: true, type, chatName: name })}
                   />
                 : <EmptyState />
               }
@@ -70,6 +97,7 @@ const Index: React.FC = () => {
         {activeTab === 'profile' && <ProfilePage />}
       </div>
 
+      {/* Unread badge */}
       {totalUnread > 0 && activeTab !== 'chats' && (
         <div
           className="fixed top-16 left-12 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white z-10"
@@ -82,15 +110,55 @@ const Index: React.FC = () => {
         </div>
       )}
 
+      {/* Notification permission banner */}
+      {showNotifBanner && (
+        <div
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl animate-fade-in-up"
+          style={{
+            background: 'var(--surface-3)',
+            border: '1px solid rgba(139,92,246,0.35)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(139,92,246,0.15)',
+            maxWidth: 420,
+            width: 'calc(100vw - 2rem)',
+          }}
+        >
+          <div
+            className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
+          >
+            <Icon name="Bell" size={18} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white">Включить уведомления?</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Узнавайте о новых сообщениях мгновенно
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleAllowNotifications}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg, var(--neon-purple), #5b21b6)' }}
+            >
+              Включить
+            </button>
+            <button
+              onClick={() => setShowNotifBanner(false)}
+              className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-110"
+              style={{ color: 'hsl(var(--muted-foreground))', background: 'var(--surface-4)' }}
+            >
+              <Icon name="X" size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Call overlay */}
       {call.active && (
         <CallOverlay type={call.type} chatName={call.chatName} onEnd={endCall} />
       )}
     </div>
   );
-
-  function endCall() {
-    setCall({ active: false, type: 'voice', chatName: '' });
-  }
 };
 
 export default Index;
