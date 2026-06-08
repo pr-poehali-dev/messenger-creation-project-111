@@ -28,8 +28,8 @@ const ChatList: React.FC<ChatListProps> = ({ chats, activeChat, onSelectChat, on
 
   return (
     <div
-      className="flex flex-col h-full"
-      style={{ width: 300, background: 'var(--surface-2)', borderRight: '1px solid var(--glass-border)' }}
+      className="flex flex-col h-full w-full md:w-[300px] flex-shrink-0"
+      style={{ background: 'var(--surface-2)', borderRight: '1px solid var(--glass-border)', paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 64px)' }}
     >
       <div className="px-4 pt-5 pb-3">
         <div className="flex items-center justify-between mb-4">

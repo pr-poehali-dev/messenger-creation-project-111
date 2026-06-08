@@ -36,7 +36,7 @@ const ProfilePage: React.FC = () => {
         backgroundImage: 'radial-gradient(circle at 70% 10%, rgba(139,92,246,0.08) 0%, transparent 50%)',
       }}
     >
-      <div className="max-w-lg mx-auto px-6 py-8">
+      <div className="max-w-lg mx-auto px-6 py-8" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 80px)' }}>
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-xl font-bold text-white">Личный кабинет</h2>
           <button

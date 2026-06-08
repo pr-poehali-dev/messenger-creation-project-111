@@ -26,10 +26,8 @@ const Index: React.FC = () => {
   const { chats, refetch: refetchChats } = useChats();
   const { permission, request: requestPermission } = useNotificationPermission();
 
-  // Track new messages and fire browser notifications
   useNewMessageNotifications(chats, activeChatId);
 
-  // Show permission banner once if not yet decided
   useEffect(() => {
     if (!('Notification' in window)) return;
     if (permission === 'default') {
@@ -55,28 +53,49 @@ const Index: React.FC = () => {
     setCall({ active: false, type: 'voice', chatName: '' });
   }
 
+  const handleSelectChat = (id: number) => {
+    setActiveChatId(id);
+  };
+
+  const handleBackToList = () => {
+    setActiveChatId(null);
+  };
+
+  // On mobile: if chat is open → show only chat window
+  // Otherwise → show list (or contacts/profile)
+  const isChatOpen = activeTab === 'chats' && activeChatId !== null;
+
   return (
     <div
       className="flex h-screen overflow-hidden"
       style={{ fontFamily: "'Golos Text', sans-serif", background: 'var(--surface-1)' }}
     >
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      {/* Sidebar — hidden on mobile when chat is open */}
+      <div className={isChatOpen ? 'hidden md:flex' : 'flex'}>
+        <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); if (tab !== 'chats') setActiveChatId(null); }} totalUnread={totalUnread} />
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         {activeTab === 'chats' && (
           <>
-            <ChatList
-              chats={chats}
-              activeChat={activeChatId}
-              onSelectChat={setActiveChatId}
-              onRefresh={refetchChats}
-            />
-            <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Chat list — hidden on mobile when chat open */}
+            <div className={`${isChatOpen ? 'hidden md:flex' : 'flex'} w-full md:w-auto`}>
+              <ChatList
+                chats={chats}
+                activeChat={activeChatId}
+                onSelectChat={handleSelectChat}
+                onRefresh={refetchChats}
+              />
+            </div>
+
+            {/* Chat window — full screen on mobile */}
+            <div className={`${isChatOpen ? 'flex' : 'hidden md:flex'} flex-1 flex-col overflow-hidden`}>
               {activeChatId
                 ? <ChatWindow
                     chatId={activeChatId}
                     chat={chats.find(c => c.id === activeChatId)}
                     onCallStart={(type, name) => setCall({ active: true, type, chatName: name })}
+                    onBack={handleBackToList}
                   />
                 : <EmptyState />
               }
@@ -97,10 +116,10 @@ const Index: React.FC = () => {
         {activeTab === 'profile' && <ProfilePage />}
       </div>
 
-      {/* Unread badge */}
+      {/* Unread badge — only on desktop */}
       {totalUnread > 0 && activeTab !== 'chats' && (
         <div
-          className="fixed top-16 left-12 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white z-10"
+          className="hidden md:flex fixed top-16 left-12 w-4 h-4 rounded-full items-center justify-center text-[9px] font-bold text-white z-10"
           style={{
             background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))',
             boxShadow: '0 0 8px rgba(139,92,246,0.6)',
@@ -110,7 +129,7 @@ const Index: React.FC = () => {
         </div>
       )}
 
-      {/* Notification permission banner */}
+      {/* Notification banner */}
       {showNotifBanner && (
         <div
           className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl animate-fade-in-up"
@@ -120,6 +139,7 @@ const Index: React.FC = () => {
             boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(139,92,246,0.15)',
             maxWidth: 420,
             width: 'calc(100vw - 2rem)',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
           }}
         >
           <div
@@ -153,7 +173,6 @@ const Index: React.FC = () => {
         </div>
       )}
 
-      {/* Call overlay */}
       {call.active && (
         <CallOverlay type={call.type} chatName={call.chatName} onEnd={endCall} />
       )}

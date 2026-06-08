@@ -8,6 +8,7 @@ interface ChatWindowProps {
   chatId: number;
   chat?: ApiChat;
   onCallStart: (type: 'voice' | 'video', chatName: string) => void;
+  onBack?: () => void;
 }
 
 const ALLOWED_TYPES: Record<string, string> = {
@@ -49,7 +50,7 @@ interface FilePreview {
   isImage: boolean;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart, onBack }) => {
   const { messages, sendMessage, sendFileMessage } = useMessages(chatId);
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
@@ -169,6 +170,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
         style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--glass-border)' }}
       >
         <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden flex items-center justify-center w-8 h-8 rounded-xl transition-all hover:scale-105 flex-shrink-0"
+              style={{ background: 'var(--surface-3)', color: 'hsl(var(--muted-foreground))' }}
+            >
+              <Icon name="ChevronLeft" size={20} />
+            </button>
+          )}
           <Avatar seed={chatAvatar} name={chatName} size={40} online={chatOnline} />
           <div>
             <div className="font-semibold text-white text-sm">{chatName}</div>
@@ -243,8 +253,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
         <div ref={bottomRef} />
       </div>
 
-      {/* Input area */}
-      <div className="px-4 py-3 flex-shrink-0" style={{ background: 'var(--surface-2)', borderTop: '1px solid var(--glass-border)' }}>
+      {/* Input area — extra bottom padding on mobile for nav bar */}
+      <div className="px-4 pt-3 pb-3 flex-shrink-0" style={{ background: 'var(--surface-2)', borderTop: '1px solid var(--glass-border)', paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)' }}>
 
         {/* File preview */}
         {filePreview && (

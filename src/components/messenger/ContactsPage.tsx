@@ -41,17 +41,23 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
     }
   };
 
+  const handleSelect = (u: ApiUser) => setSelected(u);
+  const handleBack = () => setSelected(null);
+
   return (
-    <div className="flex h-full">
-      {/* Left panel */}
+    <div className="flex h-full w-full overflow-hidden">
+      {/* Left panel — contact list */}
+      {/* On mobile: shown when no contact selected; on desktop: always shown */}
       <div
-        className="flex flex-col h-full"
-        style={{ width: 300, background: 'var(--surface-2)', borderRight: '1px solid var(--glass-border)' }}
+        className={`${selected ? 'hidden md:flex' : 'flex'} flex-col h-full w-full md:w-[300px] flex-shrink-0`}
+        style={{
+          background: 'var(--surface-2)',
+          borderRight: '1px solid var(--glass-border)',
+          paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 64px)',
+        }}
       >
         <div className="px-4 pt-5 pb-3">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-white">Контакты</h2>
-          </div>
+          <h2 className="text-lg font-bold text-white mb-4">Контакты</h2>
           <div className="relative">
             <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'hsl(var(--muted-foreground))' }} />
             <input
@@ -71,7 +77,6 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
               <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Никого не найдено</p>
             </div>
           )}
-
           {online.length > 0 && (
             <>
               <div className="px-2 py-1 mb-1">
@@ -80,12 +85,11 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
                 </span>
               </div>
               {online.map(u => (
-                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => setSelected(u)} />
+                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => handleSelect(u)} />
               ))}
               {offline.length > 0 && <div className="mx-2 my-2" style={{ height: 1, background: 'var(--glass-border)' }} />}
             </>
           )}
-
           {offline.length > 0 && (
             <>
               <div className="px-2 py-1 mb-1">
@@ -94,60 +98,71 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
                 </span>
               </div>
               {offline.map(u => (
-                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => setSelected(u)} />
+                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => handleSelect(u)} />
               ))}
             </>
           )}
         </div>
       </div>
 
-      {/* Right: contact info */}
-      <div className="flex-1 flex flex-col items-center justify-center" style={{ background: 'var(--surface-1)' }}>
+      {/* Right panel — contact details */}
+      {/* On mobile: shown when contact selected; on desktop: always shown */}
+      <div
+        className={`${selected ? 'flex' : 'hidden md:flex'} flex-1 flex-col overflow-y-auto`}
+        style={{ background: 'var(--surface-1)', paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 64px)' }}
+      >
         {selected ? (
-          <div className="flex flex-col items-center animate-fade-in" style={{ maxWidth: 340 }}>
-            <div className="relative mb-5">
-              <Avatar seed={selected.avatar_seed} name={selected.name} size={96} online={selected.online} />
-            </div>
-
-            <h3 className="text-xl font-bold text-white mb-0.5">{selected.name}</h3>
-            <p className="text-sm mb-1" style={{ color: 'var(--neon-cyan)' }}>{selected.username}</p>
-            <p className="text-xs mb-5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {selected.online ? '● онлайн' : `был(а) ${selected.lastSeen}`}
-            </p>
-
-            {selected.bio && (
-              <div className="w-full mb-4 p-3 rounded-2xl text-sm text-center"
-                style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)', color: 'hsl(var(--foreground))' }}>
-                {selected.bio}
-              </div>
-            )}
-
-            {selected.phone && (
-              <div className="w-full mb-5 p-3 rounded-2xl" style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}>
-                <div className="flex items-center gap-2 text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  <Icon name="Phone" size={15} />
-                  <span className="text-white">{selected.phone}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-3 w-full">
+          <>
+            {/* Mobile back button */}
+            <div className="md:hidden flex items-center px-4 pt-4 pb-2">
               <button
-                onClick={handleWriteMessage}
-                disabled={creating}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm text-white transition-all hover:scale-105 disabled:opacity-60"
-                style={{ background: 'linear-gradient(135deg, var(--neon-purple), #5b21b6)', boxShadow: '0 0 20px rgba(139,92,246,0.4)' }}
+                onClick={handleBack}
+                className="flex items-center gap-1 text-sm font-medium transition-opacity hover:opacity-70"
+                style={{ color: 'var(--neon-cyan)' }}
               >
-                {creating
-                  ? <Icon name="Loader2" size={16} className="animate-spin" />
-                  : <Icon name="MessageCircle" size={16} />
-                }
-                Написать
+                <Icon name="ChevronLeft" size={18} />
+                Назад
               </button>
             </div>
-          </div>
+
+            <div className="flex flex-col items-center px-6 py-6 animate-fade-in" style={{ maxWidth: 340, margin: '0 auto', width: '100%' }}>
+              <div className="relative mb-5">
+                <Avatar seed={selected.avatar_seed} name={selected.name} size={96} online={selected.online} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-0.5">{selected.name}</h3>
+              <p className="text-sm mb-1" style={{ color: 'var(--neon-cyan)' }}>{selected.username}</p>
+              <p className="text-xs mb-5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {selected.online ? '● онлайн' : `был(а) ${selected.lastSeen}`}
+              </p>
+              {selected.bio && (
+                <div className="w-full mb-4 p-3 rounded-2xl text-sm text-center"
+                  style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)', color: 'hsl(var(--foreground))' }}>
+                  {selected.bio}
+                </div>
+              )}
+              {selected.phone && (
+                <div className="w-full mb-5 p-3 rounded-2xl" style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}>
+                  <div className="flex items-center gap-2 text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <Icon name="Phone" size={15} />
+                    <span className="text-white">{selected.phone}</span>
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={handleWriteMessage}
+                  disabled={creating}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm text-white transition-all hover:scale-105 disabled:opacity-60"
+                  style={{ background: 'linear-gradient(135deg, var(--neon-purple), #5b21b6)', boxShadow: '0 0 20px rgba(139,92,246,0.4)' }}
+                >
+                  {creating ? <Icon name="Loader2" size={16} className="animate-spin" /> : <Icon name="MessageCircle" size={16} />}
+                  Написать
+                </button>
+              </div>
+            </div>
+          </>
         ) : (
-          <div className="flex flex-col items-center gap-3 opacity-40">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 opacity-40">
             <div className="w-20 h-20 rounded-3xl flex items-center justify-center"
               style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}>
               <Icon name="Users" size={36} style={{ color: 'hsl(var(--muted-foreground))' }} />
@@ -176,6 +191,7 @@ const ContactItem: React.FC<{ user: ApiUser; active: boolean; onClick: () => voi
       <div className="font-semibold text-sm text-white truncate">{user.name}</div>
       <div className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{user.username}</div>
     </div>
+    <Icon name="ChevronRight" size={14} className="md:hidden flex-shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
   </div>
 );
 
