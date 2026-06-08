@@ -1,20 +1,16 @@
 """
 Авторизация + профиль пользователей.
-POST /send-code   — отправить код подтверждения на email (шаг 1 регистрации)
-POST /verify-code — проверить код и создать аккаунт (шаг 2 регистрации)
-POST /register    — быстрая регистрация без email (legacy, оставлен)
-POST /login       — вход (по username или email)
-POST /logout      — выход
-GET  /me          — текущий пользователь
-PUT  /me          — обновить профиль
-GET  /users       — список / поиск пользователей (?q=query)
+POST /register — регистрация (имя, username, email, пароль)
+POST /login    — вход (по username или email)
+POST /logout   — выход
+GET  /me       — текущий пользователь
+PUT  /me       — обновить профиль
+GET  /users    — список / поиск пользователей (?q=query)
 """
 import json
 import os
 import hashlib
 import secrets
-import random
-import urllib.request
 import psycopg2
 
 SCHEMA = os.environ.get('MAIN_DB_SCHEMA', 't_p31400750_messenger_creation_p')
@@ -48,51 +44,6 @@ def get_session_user(session_id: str, conn):
             'phone': row[4], 'avatar_seed': row[5], 'online': row[6], 'email': row[7]}
 
 
-def send_email_unisender(to_email: str, code: str, name: str):
-    api_key = os.environ.get('UNISENDER_API_KEY', '')
-    from_email = os.environ.get('UNISENDER_FROM_EMAIL', '')
-    if not api_key or not from_email:
-        raise RuntimeError('UniSender не настроен')
-
-    html = f"""
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0d0f17;border-radius:16px;">
-      <div style="text-align:center;margin-bottom:24px;">
-        <div style="display:inline-block;width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#06d6f5);line-height:56px;font-size:24px;font-weight:900;color:white;">P</div>
-        <h2 style="color:white;margin:12px 0 4px;font-size:22px;">PULSE</h2>
-        <p style="color:#6b7280;margin:0;font-size:14px;">Подтверждение email</p>
-      </div>
-      <p style="color:#d1d5db;font-size:15px;margin-bottom:8px;">Привет, <b style="color:white;">{name}</b>!</p>
-      <p style="color:#9ca3af;font-size:14px;margin-bottom:24px;">Твой код подтверждения для регистрации в PULSE:</p>
-      <div style="text-align:center;margin:28px 0;">
-        <span style="display:inline-block;background:linear-gradient(135deg,rgba(139,92,246,0.2),rgba(6,214,245,0.1));border:1px solid rgba(139,92,246,0.4);border-radius:14px;padding:18px 40px;font-size:36px;font-weight:900;letter-spacing:10px;color:white;">{code}</span>
-      </div>
-      <p style="color:#6b7280;font-size:13px;text-align:center;">Код действителен 10 минут. Не передавай его никому.</p>
-    </div>
-    """
-
-    import urllib.parse
-    params = urllib.parse.urlencode({
-        'api_key': api_key,
-        'format': 'json',
-        'email': to_email,
-        'sender_name': 'PULSE Мессенджер',
-        'sender_email': from_email,
-        'subject': f'Код подтверждения: {code}',
-        'body': html,
-        'list_id': '1',
-    }).encode('utf-8')
-
-    req = urllib.request.Request(
-        'https://api.unisender.com/ru/api/sendEmail',
-        data=params,
-        method='POST',
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        result = json.loads(resp.read().decode('utf-8'))
-        if 'error' in result:
-            raise RuntimeError(f'UniSender error: {result["error"]}')
-
-
 def handler(event: dict, context) -> dict:
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
@@ -105,141 +56,13 @@ def handler(event: dict, context) -> dict:
 
     conn = get_conn()
     try:
-        # ── POST /send-code ───────────────────────────────────────────────────
-        if method == 'POST' and path.endswith('/send-code'):
-            body = json.loads(event.get('body') or '{}')
-            email = body.get('email', '').strip().lower()
-            name = body.get('name', '').strip()
-            username = body.get('username', '').strip().lower()
-            password = body.get('password', '')
-            phone = body.get('phone', '').strip()
-
-            if not email or not name or not username or not password:
-                return {'statusCode': 400, 'headers': CORS,
-                        'body': json.dumps({'error': 'Заполните все поля'})}
-            if '@' not in email or '.' not in email.split('@')[-1]:
-                return {'statusCode': 400, 'headers': CORS,
-                        'body': json.dumps({'error': 'Некорректный email'})}
-            if len(password) < 6:
-                return {'statusCode': 400, 'headers': CORS,
-                        'body': json.dumps({'error': 'Пароль минимум 6 символов'})}
-
-            username = '@' + username.lstrip('@')
-            seed = str(abs(hash(username)) % 8 + 1)
-
-            with conn.cursor() as cur:
-                # Check username taken
-                cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE username = %s", (username,))
-                if cur.fetchone():
-                    return {'statusCode': 409, 'headers': CORS,
-                            'body': json.dumps({'error': 'Имя пользователя занято'})}
-                # Check email taken
-                cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE email = %s", (email,))
-                if cur.fetchone():
-                    return {'statusCode': 409, 'headers': CORS,
-                            'body': json.dumps({'error': 'Email уже используется'})}
-                # Rate limit: max 3 codes per email per 10 min
-                cur.execute(
-                    f"SELECT COUNT(*) FROM {SCHEMA}.email_codes "
-                    f"WHERE email = %s AND created_at > NOW() - INTERVAL '10 minutes'",
-                    (email,)
-                )
-                count = cur.fetchone()[0]
-                if count >= 3:
-                    return {'statusCode': 429, 'headers': CORS,
-                            'body': json.dumps({'error': 'Слишком много попыток. Подождите 10 минут.'})}
-
-                # Generate 6-digit code
-                code = str(random.randint(100000, 999999))
-
-                # Store pending registration
-                cur.execute(
-                    f"INSERT INTO {SCHEMA}.email_codes "
-                    f"(email, code, name, username, password_hash, phone, avatar_seed) "
-                    f"VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                    (email, code, name, username, hash_password(password), phone, seed)
-                )
-            conn.commit()
-
-            # Send email
-            send_email_unisender(email, code, name)
-
-            return {'statusCode': 200, 'headers': CORS,
-                    'body': json.dumps({'ok': True, 'email': email})}
-
-        # ── POST /verify-code ─────────────────────────────────────────────────
-        if method == 'POST' and path.endswith('/verify-code'):
-            body = json.loads(event.get('body') or '{}')
-            email = body.get('email', '').strip().lower()
-            code = body.get('code', '').strip()
-
-            if not email or not code:
-                return {'statusCode': 400, 'headers': CORS,
-                        'body': json.dumps({'error': 'Укажите email и код'})}
-
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT id, code, name, username, password_hash, phone, avatar_seed, attempts, expires_at "
-                    f"FROM {SCHEMA}.email_codes "
-                    f"WHERE email = %s AND expires_at > NOW() "
-                    f"ORDER BY created_at DESC LIMIT 1",
-                    (email,)
-                )
-                row = cur.fetchone()
-                if not row:
-                    return {'statusCode': 400, 'headers': CORS,
-                            'body': json.dumps({'error': 'Код не найден или истёк. Запросите новый.'})}
-
-                rec_id, stored_code, name, username, pw_hash, phone, seed, attempts, _ = row
-
-                if attempts >= 5:
-                    return {'statusCode': 429, 'headers': CORS,
-                            'body': json.dumps({'error': 'Слишком много неверных попыток. Запросите новый код.'})}
-
-                if code != stored_code:
-                    cur.execute(
-                        f"UPDATE {SCHEMA}.email_codes SET attempts = attempts + 1 WHERE id = %s", (rec_id,)
-                    )
-                    conn.commit()
-                    left = 5 - attempts - 1
-                    return {'statusCode': 400, 'headers': CORS,
-                            'body': json.dumps({'error': f'Неверный код. Осталось попыток: {left}'})}
-
-                # Code correct — create user
-                cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE username = %s", (username,))
-                if cur.fetchone():
-                    return {'statusCode': 409, 'headers': CORS,
-                            'body': json.dumps({'error': 'Имя пользователя уже занято'})}
-
-                cur.execute(
-                    f"INSERT INTO {SCHEMA}.users "
-                    f"(name, username, password_hash, phone, avatar_seed, email, email_verified) "
-                    f"VALUES (%s, %s, %s, %s, %s, %s, TRUE) RETURNING id",
-                    (name, username, pw_hash, phone, seed, email)
-                )
-                user_id = cur.fetchone()[0]
-
-                sid = secrets.token_hex(32)
-                cur.execute(f"INSERT INTO {SCHEMA}.sessions (id, user_id) VALUES (%s, %s)", (sid, user_id))
-
-                # Invalidate all codes for this email
-                cur.execute(
-                    f"UPDATE {SCHEMA}.email_codes SET expires_at = NOW() WHERE email = %s", (email,)
-                )
-            conn.commit()
-
-            user = {'id': user_id, 'name': name, 'username': username,
-                    'bio': '', 'phone': phone, 'avatar_seed': seed,
-                    'email': email, 'online': False}
-            return {'statusCode': 200, 'headers': CORS,
-                    'body': json.dumps({'session_id': sid, 'user': user})}
-
-        # ── POST /register (legacy, без email) ───────────────────────────────
+        # ── POST /register ────────────────────────────────────────────────────
         if method == 'POST' and path.endswith('/register'):
             body = json.loads(event.get('body') or '{}')
             name = body.get('name', '').strip()
             username = body.get('username', '').strip().lower()
             password = body.get('password', '')
+            email = body.get('email', '').strip().lower()
             phone = body.get('phone', '').strip()
 
             if not name or not username or not password:
@@ -248,6 +71,9 @@ def handler(event: dict, context) -> dict:
             if len(password) < 6:
                 return {'statusCode': 400, 'headers': CORS,
                         'body': json.dumps({'error': 'Пароль минимум 6 символов'})}
+            if email and ('@' not in email or '.' not in email.split('@')[-1]):
+                return {'statusCode': 400, 'headers': CORS,
+                        'body': json.dumps({'error': 'Некорректный email'})}
 
             username = '@' + username.lstrip('@')
             seed = str(abs(hash(username)) % 8 + 1)
@@ -257,10 +83,15 @@ def handler(event: dict, context) -> dict:
                 if cur.fetchone():
                     return {'statusCode': 409, 'headers': CORS,
                             'body': json.dumps({'error': 'Имя пользователя занято'})}
+                if email:
+                    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE email = %s", (email,))
+                    if cur.fetchone():
+                        return {'statusCode': 409, 'headers': CORS,
+                                'body': json.dumps({'error': 'Email уже используется'})}
                 cur.execute(
-                    f"INSERT INTO {SCHEMA}.users (name, username, password_hash, phone, avatar_seed) "
-                    f"VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                    (name, username, hash_password(password), phone, seed)
+                    f"INSERT INTO {SCHEMA}.users (name, username, password_hash, phone, avatar_seed, email) "
+                    f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                    (name, username, hash_password(password), phone, seed, email or None)
                 )
                 user_id = cur.fetchone()[0]
                 sid = secrets.token_hex(32)
@@ -268,7 +99,8 @@ def handler(event: dict, context) -> dict:
             conn.commit()
 
             user = {'id': user_id, 'name': name, 'username': username,
-                    'bio': '', 'phone': phone, 'avatar_seed': seed, 'online': False}
+                    'bio': '', 'phone': phone, 'avatar_seed': seed,
+                    'email': email or None, 'online': False}
             return {'statusCode': 200, 'headers': CORS,
                     'body': json.dumps({'session_id': sid, 'user': user})}
 
@@ -279,7 +111,6 @@ def handler(event: dict, context) -> dict:
             password = body.get('password', '')
 
             with conn.cursor() as cur:
-                # Try username or email
                 if '@' in login_input and '.' in login_input.split('@')[-1]:
                     cur.execute(
                         f"SELECT id, name, username, bio, phone, avatar_seed, email FROM {SCHEMA}.users "
