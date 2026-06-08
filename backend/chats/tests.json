@@ -6,6 +6,13 @@
       "path": "/",
       "expectedStatus": 200,
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get chats unauthorized",
+      "method": "GET",
+      "path": "/?action=chats",
+      "expectedStatus": 401,
+      "bodyMatcher": "partial"
     }
   ]
 }

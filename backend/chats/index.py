@@ -1,10 +1,10 @@
 """
-Чаты + сообщения.
-GET  /chats              — список чатов пользователя
-POST /chats              — создать чат
-GET  /messages?chat_id=N — история сообщений
-POST /messages           — отправить сообщение
-POST /messages/read      — пометить прочитанными
+Чаты + сообщения. v2 — роутинг через ?action=
+GET  ?action=chats                        — список чатов
+POST ?action=chats                        — создать чат
+GET  ?action=messages&chat_id=N           — история сообщений
+POST ?action=messages                     — отправить сообщение
+POST ?action=read                         — пометить прочитанными
 """
 import json
 import os
@@ -46,10 +46,10 @@ def handler(event: dict, context) -> dict:
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
     method = event.get('httpMethod', 'GET')
-    path = event.get('path', '/')
     headers = event.get('headers') or {}
     session_id = headers.get('X-Session-Id', '')
     params = event.get('queryStringParameters') or {}
+    action = params.get('action', '')
 
     conn = get_conn()
     try:
@@ -57,10 +57,8 @@ def handler(event: dict, context) -> dict:
         if not user_id:
             return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Не авторизован'})}
 
-        # ============ CHATS ============
-
-        # GET /chats
-        if method == 'GET' and '/chats' in path:
+        # GET ?action=chats
+        if method == 'GET' and action == 'chats':
             with conn.cursor() as cur:
                 cur.execute(f"""
                     SELECT
@@ -69,8 +67,7 @@ def handler(event: dict, context) -> dict:
                         (SELECT m.text FROM {SCHEMA}.messages m WHERE m.chat_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_msg,
                         (SELECT m.created_at FROM {SCHEMA}.messages m WHERE m.chat_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_time,
                         (SELECT COUNT(*) FROM {SCHEMA}.messages m
-                            WHERE m.chat_id = c.id
-                            AND m.sender_id != %s
+                            WHERE m.chat_id = c.id AND m.sender_id != %s
                             AND NOT EXISTS (
                                 SELECT 1 FROM {SCHEMA}.message_reads mr
                                 WHERE mr.message_id = m.id AND mr.user_id = %s
@@ -105,8 +102,8 @@ def handler(event: dict, context) -> dict:
                 })
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'chats': chats})}
 
-        # POST /chats
-        if method == 'POST' and path.rstrip('/').endswith('/chats'):
+        # POST ?action=chats
+        if method == 'POST' and action == 'chats':
             body = json.loads(event.get('body') or '{}')
             ctype = body.get('type', 'group')
             cname = body.get('name', '').strip()
@@ -159,15 +156,12 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'chat_id': chat_id})}
 
-        # ============ MESSAGES ============
-
-        # GET /messages
-        if method == 'GET' and '/messages' in path:
+        # GET ?action=messages&chat_id=N
+        if method == 'GET' and action == 'messages':
             chat_id = params.get('chat_id')
             if not chat_id:
                 return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Укажите chat_id'})}
             chat_id = int(chat_id)
-
             if not is_member(chat_id, user_id, conn):
                 return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Нет доступа'})}
 
@@ -202,8 +196,8 @@ def handler(event: dict, context) -> dict:
                 })
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'messages': msgs})}
 
-        # POST /messages/read
-        if method == 'POST' and '/messages/read' in path:
+        # POST ?action=read
+        if method == 'POST' and action == 'read':
             body = json.loads(event.get('body') or '{}')
             chat_id = int(body.get('chat_id', 0))
             with conn.cursor() as cur:
@@ -219,8 +213,8 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
 
-        # POST /messages
-        if method == 'POST' and '/messages' in path:
+        # POST ?action=messages
+        if method == 'POST' and action == 'messages':
             body = json.loads(event.get('body') or '{}')
             chat_id = int(body.get('chat_id', 0))
             text = body.get('text', '').strip()

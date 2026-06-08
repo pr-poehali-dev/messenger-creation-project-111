@@ -59,38 +59,38 @@ export const api = {
 
   // ---- Chats ----
   getChats: () =>
-    request('chats', '/chats', { method: 'GET' }),
+    request('chats', '/?action=chats', { method: 'GET' }),
 
   createDirectChat: (otherUserId: number) =>
-    request('chats', '/chats', {
+    request('chats', '/?action=chats', {
       method: 'POST',
       body: JSON.stringify({ type: 'direct', other_user_id: otherUserId }),
     }),
 
   createGroupChat: (name: string, type: 'group' | 'channel', memberIds: number[]) =>
-    request('chats', '/chats', {
+    request('chats', '/?action=chats', {
       method: 'POST',
       body: JSON.stringify({ type, name, member_ids: memberIds }),
     }),
 
   // ---- Messages ----
   getMessages: (chatId: number, limit = 50, offset = 0) =>
-    request('chats', `/messages?chat_id=${chatId}&limit=${limit}&offset=${offset}`, { method: 'GET' }),
+    request('chats', `/?action=messages&chat_id=${chatId}&limit=${limit}&offset=${offset}`, { method: 'GET' }),
 
   sendMessage: (chatId: number, text: string) =>
-    request('chats', '/messages', {
+    request('chats', '/?action=messages', {
       method: 'POST',
       body: JSON.stringify({ chat_id: chatId, text }),
     }),
 
   markRead: (chatId: number) =>
-    request('chats', '/messages/read', {
+    request('chats', '/?action=read', {
       method: 'POST',
       body: JSON.stringify({ chat_id: chatId }),
     }),
 
   sendFileMessage: (chatId: number, text: string, fileUrl: string, fileName: string, type: 'image' | 'file') =>
-    request('chats', '/messages', {
+    request('chats', '/?action=messages', {
       method: 'POST',
       body: JSON.stringify({ chat_id: chatId, text, file_url: fileUrl, file_name: fileName, type }),
     }),
