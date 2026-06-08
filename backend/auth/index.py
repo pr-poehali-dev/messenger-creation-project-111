@@ -48,11 +48,11 @@ def get_session_user(session_id: str, conn):
             'phone': row[4], 'avatar_seed': row[5], 'online': row[6], 'email': row[7]}
 
 
-def send_email_sendgrid(to_email: str, code: str, name: str):
-    api_key = os.environ.get('SENDGRID_API_KEY', '')
-    from_email = os.environ.get('SENDGRID_FROM_EMAIL', '')
+def send_email_unisender(to_email: str, code: str, name: str):
+    api_key = os.environ.get('UNISENDER_API_KEY', '')
+    from_email = os.environ.get('UNISENDER_FROM_EMAIL', '')
     if not api_key or not from_email:
-        raise RuntimeError('SendGrid не настроен')
+        raise RuntimeError('UniSender не настроен')
 
     html = f"""
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0d0f17;border-radius:16px;">
@@ -70,25 +70,27 @@ def send_email_sendgrid(to_email: str, code: str, name: str):
     </div>
     """
 
-    payload = json.dumps({
-        'personalizations': [{'to': [{'email': to_email}]}],
-        'from': {'email': from_email, 'name': 'PULSE Мессенджер'},
+    import urllib.parse
+    params = urllib.parse.urlencode({
+        'api_key': api_key,
+        'format': 'json',
+        'email': to_email,
+        'sender_name': 'PULSE Мессенджер',
+        'sender_email': from_email,
         'subject': f'Код подтверждения: {code}',
-        'content': [{'type': 'text/html', 'value': html}],
+        'body': html,
+        'list_id': '1',
     }).encode('utf-8')
 
     req = urllib.request.Request(
-        'https://api.sendgrid.com/v3/mail/send',
-        data=payload,
-        headers={
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json',
-        },
+        'https://api.unisender.com/ru/api/sendEmail',
+        data=params,
         method='POST',
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
-        if resp.status not in (200, 202):
-            raise RuntimeError(f'SendGrid error: {resp.status}')
+        result = json.loads(resp.read().decode('utf-8'))
+        if 'error' in result:
+            raise RuntimeError(f'UniSender error: {result["error"]}')
 
 
 def handler(event: dict, context) -> dict:
@@ -160,7 +162,7 @@ def handler(event: dict, context) -> dict:
             conn.commit()
 
             # Send email
-            send_email_sendgrid(email, code, name)
+            send_email_unisender(email, code, name)
 
             return {'statusCode': 200, 'headers': CORS,
                     'body': json.dumps({'ok': True, 'email': email})}
