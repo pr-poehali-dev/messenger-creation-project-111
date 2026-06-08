@@ -207,7 +207,7 @@ const Index: React.FC = () => {
             boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(6,214,245,0.15)',
             maxWidth: 420,
             width: 'calc(100vw - 2rem)',
-            bottom: 'calc(max(env(safe-area-inset-bottom, 0px), 0px) + 80px)',
+            bottom: 'calc(64px + max(env(safe-area-inset-bottom, 8px), 8px) + 8px)',
           }}
         >
           <div
