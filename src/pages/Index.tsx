@@ -23,10 +23,34 @@ const Index: React.FC = () => {
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [call, setCall] = useState<CallState>({ active: false, type: 'voice', chatName: '' });
   const [showNotifBanner, setShowNotifBanner] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
   const { chats, refetch: refetchChats } = useChats();
   const { permission, request: requestPermission } = useNotificationPermission();
 
   useNewMessageNotifications(chats, activeChatId);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      // Показываем баннер через 3 секунды если не установлено
+      if (!window.matchMedia('(display-mode: standalone)').matches) {
+        setTimeout(() => setShowInstallBanner(true), 3000);
+      }
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') setInstallPrompt(null);
+    setShowInstallBanner(false);
+  };
 
   useEffect(() => {
     if (!('Notification' in window)) return;
@@ -164,6 +188,50 @@ const Index: React.FC = () => {
             </button>
             <button
               onClick={() => setShowNotifBanner(false)}
+              className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-110"
+              style={{ color: 'hsl(var(--muted-foreground))', background: 'var(--surface-4)' }}
+            >
+              <Icon name="X" size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Install PWA banner */}
+      {showInstallBanner && installPrompt && (
+        <div
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl animate-fade-in-up"
+          style={{
+            background: 'var(--surface-3)',
+            border: '1px solid rgba(6,214,245,0.35)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(6,214,245,0.15)',
+            maxWidth: 420,
+            width: 'calc(100vw - 2rem)',
+            bottom: 'calc(max(env(safe-area-inset-bottom, 0px), 0px) + 80px)',
+          }}
+        >
+          <div
+            className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center font-black text-white text-sm"
+            style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
+          >
+            P
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white">Установить PULSE</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Добавьте приложение на экран телефона
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleInstall}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg, var(--neon-cyan), #0891b2)' }}
+            >
+              Установить
+            </button>
+            <button
+              onClick={() => setShowInstallBanner(false)}
               className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-110"
               style={{ color: 'hsl(var(--muted-foreground))', background: 'var(--surface-4)' }}
             >
