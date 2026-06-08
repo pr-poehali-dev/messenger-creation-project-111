@@ -156,13 +156,15 @@ const Index: React.FC = () => {
       {/* Notification banner */}
       {showNotifBanner && (
         <div
-          className="fixed left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl animate-fade-in-up"
+          className="fixed z-50 flex items-center gap-3 px-4 py-3 rounded-2xl animate-fade-in-up"
           style={{
             background: 'var(--surface-3)',
             border: '1px solid rgba(139,92,246,0.35)',
             boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(139,92,246,0.15)',
+            left: '1rem',
+            right: '1rem',
             maxWidth: 420,
-            width: 'calc(100vw - 2rem)',
+            margin: '0 auto',
             bottom: 'calc(64px + env(safe-area-inset-bottom, 0px) + 12px)',
           }}
         >
@@ -200,13 +202,15 @@ const Index: React.FC = () => {
       {/* Install PWA banner */}
       {showInstallBanner && installPrompt && (
         <div
-          className="fixed left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl animate-fade-in-up"
+          className="fixed z-50 flex items-center gap-3 px-4 py-3 rounded-2xl animate-fade-in-up"
           style={{
             background: 'var(--surface-3)',
             border: '1px solid rgba(6,214,245,0.35)',
             boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(6,214,245,0.15)',
+            left: '1rem',
+            right: '1rem',
             maxWidth: 420,
-            width: 'calc(100vw - 2rem)',
+            margin: '0 auto',
             bottom: 'calc(64px + env(safe-area-inset-bottom, 0px) + 12px)',
           }}
         >
