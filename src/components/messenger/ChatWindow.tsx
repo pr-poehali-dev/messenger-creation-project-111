@@ -61,10 +61,36 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevCountRef = useRef<number>(0);
+  const isInitialRef = useRef<boolean>(true);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const count = messages.length;
+    if (count === 0) return;
+
+    if (isInitialRef.current) {
+      // Первая загрузка — скроллим без анимации
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+      isInitialRef.current = false;
+      prevCountRef.current = count;
+      return;
+    }
+
+    if (count > prevCountRef.current) {
+      const lastMsg = messages[count - 1];
+      // Скроллим только если это наше сообщение
+      if (lastMsg?.isMe) {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+    prevCountRef.current = count;
   }, [messages]);
+
+  // Сброс при смене чата
+  useEffect(() => {
+    isInitialRef.current = true;
+    prevCountRef.current = 0;
+  }, [chatId]);
 
   const handleSend = async () => {
     if (filePreview) {
