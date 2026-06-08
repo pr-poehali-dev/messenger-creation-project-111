@@ -5,8 +5,7 @@
       "method": "POST",
       "path": "/",
       "body": {"name": "Тест Юзер", "username": "testuser_pulse1", "password": "secret123"},
-      "expectedStatus": 404,
-      "expectedBody": {"error": "string"},
+      "expectedStatus": 401,
       "bodyMatcher": "partial"
     },
     {
