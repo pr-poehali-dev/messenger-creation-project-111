@@ -124,6 +124,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart, onBa
       setFilePreview(null);
       setText('');
     } catch (e: unknown) {
+      console.error('Upload error:', e);
       setUploadError(e instanceof Error ? e.message : 'Ошибка загрузки');
     } finally {
       setUploading(false);
