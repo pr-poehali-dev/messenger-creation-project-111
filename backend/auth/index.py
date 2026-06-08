@@ -1,11 +1,12 @@
 """
-Авторизация + профиль пользователей.
-POST /register — регистрация (имя, username, email, пароль)
-POST /login    — вход (по username или email)
-POST /logout   — выход
-GET  /me       — текущий пользователь
-PUT  /me       — обновить профиль
-GET  /users    — список / поиск пользователей (?q=query)
+Авторизация + профиль пользователей. v3
+Роутинг через ?action= (cloud functions не поддерживают пути)
+POST ?action=register — регистрация
+POST ?action=login    — вход
+POST ?action=logout   — выход
+GET  ?action=me       — текущий пользователь
+PUT  ?action=me       — обновить профиль
+GET  ?action=users    — список / поиск (?q=query)
 """
 import json
 import os
@@ -49,15 +50,15 @@ def handler(event: dict, context) -> dict:
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
     method = event.get('httpMethod', 'GET')
-    path = event.get('path', '/')
     headers = event.get('headers') or {}
     session_id = headers.get('X-Session-Id', '')
     params = event.get('queryStringParameters') or {}
+    action = params.get('action', '')
 
     conn = get_conn()
     try:
-        # ── POST /register ────────────────────────────────────────────────────
-        if method == 'POST' and path.endswith('/register'):
+        # ── POST ?action=register ─────────────────────────────────────────────
+        if method == 'POST' and action == 'register':
             body = json.loads(event.get('body') or '{}')
             name = body.get('name', '').strip()
             username = body.get('username', '').strip().lower()
@@ -104,8 +105,8 @@ def handler(event: dict, context) -> dict:
             return {'statusCode': 200, 'headers': CORS,
                     'body': json.dumps({'session_id': sid, 'user': user})}
 
-        # ── POST /login ───────────────────────────────────────────────────────
-        if method == 'POST' and path.endswith('/login'):
+        # ── POST ?action=login ────────────────────────────────────────────────
+        if method == 'POST' and action == 'login':
             body = json.loads(event.get('body') or '{}')
             login_input = body.get('username', '').strip().lower()
             password = body.get('password', '')
@@ -140,8 +141,8 @@ def handler(event: dict, context) -> dict:
             return {'statusCode': 200, 'headers': CORS,
                     'body': json.dumps({'session_id': sid, 'user': user})}
 
-        # ── POST /logout ──────────────────────────────────────────────────────
-        if method == 'POST' and path.endswith('/logout'):
+        # ── POST ?action=logout ───────────────────────────────────────────────
+        if method == 'POST' and action == 'logout':
             if session_id:
                 with conn.cursor() as cur:
                     cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id = %s", (session_id,))
@@ -152,7 +153,7 @@ def handler(event: dict, context) -> dict:
                 conn.commit()
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
 
-        # ── Auth-required endpoints ────────────────────────────────────────────
+        # ── Auth-required endpoints ───────────────────────────────────────────
         user = get_session_user(session_id, conn)
         if not user:
             return {'statusCode': 401, 'headers': CORS,
@@ -160,12 +161,12 @@ def handler(event: dict, context) -> dict:
 
         user_id = user['id']
 
-        # GET /me
-        if method == 'GET' and path.endswith('/me'):
+        # GET ?action=me
+        if method == 'GET' and action == 'me':
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'user': user})}
 
-        # PUT /me
-        if method == 'PUT' and path.endswith('/me'):
+        # PUT ?action=me
+        if method == 'PUT' and action == 'me':
             body = json.loads(event.get('body') or '{}')
             name = body.get('name', '').strip()
             bio = body.get('bio', '').strip()
@@ -188,8 +189,8 @@ def handler(event: dict, context) -> dict:
                        'phone': row[4], 'avatar_seed': row[5], 'online': row[6], 'email': row[7]}
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'user': updated})}
 
-        # GET /users
-        if method == 'GET' and path.endswith('/users'):
+        # GET ?action=users
+        if method == 'GET' and action == 'users':
             q = params.get('q', '').strip()
             with conn.cursor() as cur:
                 if q:

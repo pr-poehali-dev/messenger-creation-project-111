@@ -3,9 +3,9 @@
     {
       "name": "Register new user",
       "method": "POST",
-      "path": "/",
-      "body": {"name": "Тест Юзер", "username": "testuser_pulse1", "password": "secret123"},
-      "expectedStatus": 401,
+      "path": "/?action=register",
+      "body": {"name": "Тест Юзер", "username": "testuser_pulse_dbg2", "password": "secret123"},
+      "expectedStatus": 200,
       "bodyMatcher": "partial"
     },
     {

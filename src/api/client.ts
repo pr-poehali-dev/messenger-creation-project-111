@@ -17,12 +17,12 @@ async function request(
   const url = URLS[base] + path;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
   };
   const sid = getSessionId();
   if (sid) headers['X-Session-Id'] = sid;
 
-  const res = await fetch(url, { ...options, headers });
+  const { headers: _h, ...restOptions } = options;
+  const res = await fetch(url, { ...restOptions, headers });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Ошибка сервера');
   return data;
@@ -30,44 +30,32 @@ async function request(
 
 // ---- Auth ----
 export const api = {
-  sendCode: (email: string, name: string, username: string, password: string, phone?: string) =>
-    request('auth', '/send-code', {
-      method: 'POST',
-      body: JSON.stringify({ email, name, username, password, phone }),
-    }),
-
-  verifyCode: (email: string, code: string) =>
-    request('auth', '/verify-code', {
-      method: 'POST',
-      body: JSON.stringify({ email, code }),
-    }),
-
   register: (name: string, username: string, password: string, phone?: string, email?: string) =>
-    request('auth', '/register', {
+    request('auth', '/?action=register', {
       method: 'POST',
       body: JSON.stringify({ name, username, password, phone, email }),
     }),
 
   login: (username: string, password: string) =>
-    request('auth', '/login', {
+    request('auth', '/?action=login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
 
   logout: () =>
-    request('auth', '/logout', { method: 'POST' }),
+    request('auth', '/?action=logout', { method: 'POST' }),
 
   getMe: () =>
-    request('auth', '/me', { method: 'GET' }),
+    request('auth', '/?action=me', { method: 'GET' }),
 
   updateMe: (data: { name: string; bio: string; phone: string }) =>
-    request('auth', '/me', {
+    request('auth', '/?action=me', {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
 
   getUsers: (q?: string) =>
-    request('auth', '/users' + (q ? `?q=${encodeURIComponent(q)}` : ''), { method: 'GET' }),
+    request('auth', '/?action=users' + (q ? `&q=${encodeURIComponent(q)}` : ''), { method: 'GET' }),
 
   // ---- Chats ----
   getChats: () =>
