@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useWebRTC, IncomingCall } from '@/hooks/useWebRTC';
 
@@ -12,12 +12,27 @@ function pad(n: number) { return String(n).padStart(2, '0'); }
 const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
   const {
     status, isMuted, isCameraOff,
-    localVideoRef, remoteVideoRef,
+    localStream, remoteStream,
     hangUp, toggleMute, toggleCamera,
-    localStream,
   } = webrtc;
 
   const [seconds, setSeconds] = useState(0);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Подключаем локальный стрим к <video> после монтирования
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  // Подключаем удалённый стрим к <video> после монтирования
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
 
   useEffect(() => {
     if (status !== 'active') { setSeconds(0); return; }
@@ -26,13 +41,13 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
   }, [status]);
 
   const duration = `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
-  const isVideo = (localStream.current?.getVideoTracks().length ?? 0) > 0;
+  const isVideo = (localStream?.getVideoTracks().length ?? 0) > 0;
 
   if (status === 'idle' || status === 'ended') return null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#0a0a12' }}>
-      {/* Remote video */}
+      {/* Remote video / аватар */}
       {isVideo ? (
         <video
           ref={remoteVideoRef}
@@ -52,10 +67,13 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
         </div>
       )}
 
-      {/* Gradient overlay */}
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 35%, transparent 55%, rgba(0,0,0,0.75) 100%)' }} />
+      {/* Затемнение */}
+      <div
+        className="absolute inset-0"
+        style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 35%, transparent 55%, rgba(0,0,0,0.75) 100%)' }}
+      />
 
-      {/* Top info */}
+      {/* Имя и статус */}
       <div className="relative z-10 px-5 pt-12">
         <p className="text-white font-bold text-xl">{chatName}</p>
         <p className="text-sm mt-1" style={{ color: status === 'active' ? 'var(--neon-cyan)' : 'hsl(var(--muted-foreground))' }}>
@@ -63,7 +81,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
         </p>
       </div>
 
-      {/* Local video PiP */}
+      {/* Локальное видео PiP */}
       {isVideo && (
         <div
           className="absolute top-24 right-4 z-20 rounded-2xl overflow-hidden"
@@ -85,7 +103,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
         </div>
       )}
 
-      {/* Controls */}
+      {/* Кнопки */}
       <div className="absolute bottom-0 left-0 right-0 z-10 px-6 pb-12">
         <div className="flex items-center justify-center gap-5">
           <CallBtn icon={isMuted ? 'MicOff' : 'Mic'} label={isMuted ? 'Включить' : 'Микрофон'} active={isMuted} onClick={toggleMute} />
@@ -95,7 +113,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
           <div className="flex flex-col items-center gap-2">
             <button
               onClick={hangUp}
-              className="w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95"
+              className="w-16 h-16 rounded-full flex items-center justify-center active:scale-95"
               style={{ background: '#ef4444', boxShadow: '0 0 24px rgba(239,68,68,0.5)' }}
             >
               <Icon name="PhoneOff" size={26} className="text-white" />
