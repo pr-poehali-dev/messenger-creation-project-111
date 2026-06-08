@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 import Avatar from './Avatar';
 import { useMessages, ApiMessage, ApiChat } from '@/hooks/useChats';
+import { api } from '@/api/client';
 
 interface ChatWindowProps {
   chatId: number;
@@ -9,18 +10,65 @@ interface ChatWindowProps {
   onCallStart: (type: 'voice' | 'video', chatName: string) => void;
 }
 
+const ALLOWED_TYPES: Record<string, string> = {
+  'image/jpeg': 'image',
+  'image/png': 'image',
+  'image/gif': 'image',
+  'image/webp': 'image',
+  'application/pdf': 'file',
+  'text/plain': 'file',
+  'application/zip': 'file',
+  'application/x-zip-compressed': 'file',
+  'application/msword': 'file',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'file',
+  'application/vnd.ms-excel': 'file',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'file',
+};
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+interface FilePreview {
+  file: File;
+  previewUrl: string | null;
+  isImage: boolean;
+}
+
 const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) => {
-  const { messages, sendMessage } = useMessages(chatId);
+  const { messages, sendMessage, sendFileMessage } = useMessages(chatId);
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSend = async () => {
+    if (filePreview) {
+      await handleSendFile();
+      return;
+    }
     if (!text.trim()) return;
     const t = text.trim();
     setText('');
@@ -36,6 +84,68 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploadError('');
+
+    if (!ALLOWED_TYPES[file.type]) {
+      setUploadError('Тип файла не поддерживается');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('Файл слишком большой (макс. 10 МБ)');
+      return;
+    }
+
+    const isImage = file.type.startsWith('image/');
+    let previewUrl: string | null = null;
+    if (isImage) {
+      previewUrl = URL.createObjectURL(file);
+    }
+    setFilePreview({ file, previewUrl, isImage });
+  }, []);
+
+  const handleSendFile = async () => {
+    if (!filePreview) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      const b64 = await fileToBase64(filePreview.file);
+      const res = await api.uploadFile(filePreview.file.name, b64, filePreview.file.type);
+      await sendFileMessage(
+        res.url as string,
+        filePreview.file.name,
+        res.is_image as boolean
+      );
+      if (filePreview.previewUrl) URL.revokeObjectURL(filePreview.previewUrl);
+      setFilePreview(null);
+      setText('');
+    } catch (e: unknown) {
+      setUploadError(e instanceof Error ? e.message : 'Ошибка загрузки');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const cancelFile = () => {
+    if (filePreview?.previewUrl) URL.revokeObjectURL(filePreview.previewUrl);
+    setFilePreview(null);
+    setUploadError('');
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const isImage = file.type.startsWith('image/');
+    if (!ALLOWED_TYPES[file.type]) { setUploadError('Тип файла не поддерживается'); return; }
+    if (file.size > 10 * 1024 * 1024) { setUploadError('Файл слишком большой (макс. 10 МБ)'); return; }
+    setUploadError('');
+    setFilePreview({ file, previewUrl: isImage ? URL.createObjectURL(file) : null, isImage });
+  }, []);
+
   const emojis = ['😊', '😂', '🔥', '👍', '❤️', '🚀', '🎉', '✨', '💡', '👀'];
 
   const chatName = chat?.name || '...';
@@ -44,8 +154,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
   const chatType = chat?.type || 'direct';
   const chatMembers = chat?.members || 0;
 
+  const canSend = (!!text.trim() || !!filePreview) && !uploading;
+
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--surface-1)' }}>
+    <div
+      className="flex flex-col h-full"
+      style={{ background: 'var(--surface-1)' }}
+      onDragOver={e => e.preventDefault()}
+      onDrop={handleDrop}
+    >
       {/* Header */}
       <div
         className="flex items-center justify-between px-5 py-3 flex-shrink-0"
@@ -62,7 +179,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
             </div>
           </div>
         </div>
-
         <div className="flex items-center gap-1">
           {chatType !== 'channel' && (
             <>
@@ -112,9 +228,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
                     {msg.senderName}
                   </span>
                 )}
-                <div className={`px-4 py-2.5 ${msg.isMe ? 'msg-bubble-out text-white' : 'msg-bubble-in text-white'}`}>
-                  <p className="text-sm leading-relaxed" style={{ wordBreak: 'break-word' }}>{msg.text}</p>
-                </div>
+                <MessageBubble msg={msg} isMe={msg.isMe} />
                 <div className={`flex items-center gap-1 mx-1 ${msg.isMe ? 'flex-row-reverse' : ''}`}>
                   <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>{msg.time}</span>
                   {msg.isMe && (
@@ -129,8 +243,58 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
+      {/* Input area */}
       <div className="px-4 py-3 flex-shrink-0" style={{ background: 'var(--surface-2)', borderTop: '1px solid var(--glass-border)' }}>
+
+        {/* File preview */}
+        {filePreview && (
+          <div
+            className="mb-2 p-3 rounded-xl flex items-center gap-3"
+            style={{ background: 'var(--surface-3)', border: '1px solid rgba(139,92,246,0.3)' }}
+          >
+            {filePreview.isImage && filePreview.previewUrl ? (
+              <img
+                src={filePreview.previewUrl}
+                alt="preview"
+                className="rounded-lg object-cover flex-shrink-0"
+                style={{ width: 56, height: 56 }}
+              />
+            ) : (
+              <div
+                className="flex-shrink-0 w-14 h-14 rounded-lg flex items-center justify-center"
+                style={{ background: 'var(--surface-4)' }}
+              >
+                <Icon name="FileText" size={24} style={{ color: 'var(--neon-purple)' }} />
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{filePreview.file.name}</p>
+              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {formatFileSize(filePreview.file.size)}
+              </p>
+            </div>
+            <button
+              onClick={cancelFile}
+              className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-110"
+              style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}
+            >
+              <Icon name="X" size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* Upload error */}
+        {uploadError && (
+          <div
+            className="mb-2 px-3 py-2 rounded-xl flex items-center gap-2 text-xs"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+          >
+            <Icon name="AlertCircle" size={13} />
+            {uploadError}
+          </div>
+        )}
+
+        {/* Emoji picker */}
         {showEmoji && (
           <div className="flex gap-2 mb-2 p-2 rounded-xl" style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}>
             {emojis.map(e => (
@@ -138,23 +302,38 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
             ))}
           </div>
         )}
+
+        {/* Input row */}
         <div className="flex items-end gap-2 px-3 py-2 rounded-2xl" style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}>
+          {/* File attach button */}
           <button
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl"
-            style={{ color: 'hsl(var(--muted-foreground))' }}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl transition-all hover:scale-105"
+            style={{ color: filePreview ? 'var(--neon-purple)' : 'hsl(var(--muted-foreground))' }}
+            title="Прикрепить файл"
           >
             <Icon name="Paperclip" size={18} />
           </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={handleFileSelect}
+          />
+
           <textarea
             ref={inputRef}
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Написать сообщение..."
+            placeholder={filePreview ? 'Добавить подпись...' : 'Написать сообщение...'}
             rows={1}
             className="flex-1 bg-transparent outline-none text-white text-sm resize-none placeholder:text-muted-foreground"
             style={{ fontFamily: 'inherit', maxHeight: 120, lineHeight: '1.5' }}
           />
+
           <button
             onClick={() => setShowEmoji(!showEmoji)}
             className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl transition-all hover:scale-105"
@@ -162,19 +341,89 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart }) =>
           >
             <Icon name="Smile" size={18} />
           </button>
+
           <button
             onClick={handleSend}
-            disabled={!text.trim()}
+            disabled={!canSend}
             className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all"
             style={{
-              background: text.trim() ? 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' : 'var(--surface-4)',
-              boxShadow: text.trim() ? '0 0 15px rgba(139,92,246,0.4)' : 'none',
+              background: canSend ? 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' : 'var(--surface-4)',
+              boxShadow: canSend ? '0 0 15px rgba(139,92,246,0.4)' : 'none',
             }}
           >
-            <Icon name="Send" size={16} className="text-white" />
+            {uploading
+              ? <Icon name="Loader2" size={16} className="text-white animate-spin" />
+              : <Icon name="Send" size={16} className="text-white" />
+            }
           </button>
         </div>
+
+        {/* Drag hint */}
+        <p className="text-center text-[10px] mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+          Перетащите файл или изображение в чат для отправки
+        </p>
       </div>
+    </div>
+  );
+};
+
+/* Bubble renders text / image / file differently */
+const MessageBubble: React.FC<{ msg: ApiMessage; isMe: boolean }> = ({ msg, isMe }) => {
+  const [imgError, setImgError] = useState(false);
+
+  const bubbleClass = isMe ? 'msg-bubble-out text-white' : 'msg-bubble-in text-white';
+
+  if (msg.type === 'image' && msg.fileUrl && !imgError) {
+    return (
+      <div className={`overflow-hidden ${isMe ? 'rounded-[18px_18px_4px_18px]' : 'rounded-[18px_18px_18px_4px]'}`}
+        style={{ maxWidth: 260 }}>
+        <img
+          src={msg.fileUrl}
+          alt={msg.fileName || 'изображение'}
+          className="block w-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+          style={{ maxHeight: 300 }}
+          onError={() => setImgError(true)}
+          onClick={() => window.open(msg.fileUrl!, '_blank')}
+        />
+        {msg.text && msg.text !== msg.fileName && (
+          <div className="px-3 py-2" style={{ background: isMe ? 'rgba(0,0,0,0.2)' : 'var(--surface-4)' }}>
+            <p className="text-xs text-white" style={{ wordBreak: 'break-word' }}>{msg.text}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (msg.type === 'file' && msg.fileUrl) {
+    return (
+      <a
+        href={msg.fileUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={`flex items-center gap-3 px-4 py-3 no-underline ${bubbleClass}`}
+        style={{ minWidth: 200, maxWidth: 280 }}
+      >
+        <div
+          className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+          style={{ background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--surface-4)' }}
+        >
+          <Icon name="FileText" size={20} className="text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-white truncate">{msg.fileName || msg.text}</p>
+          <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: 'rgba(255,255,255,0.6)' }}>
+            <Icon name="Download" size={11} />
+            Скачать
+          </p>
+        </div>
+      </a>
+    );
+  }
+
+  // fallback for image error
+  return (
+    <div className={`px-4 py-2.5 ${bubbleClass}`}>
+      <p className="text-sm leading-relaxed" style={{ wordBreak: 'break-word' }}>{msg.text}</p>
     </div>
   );
 };

@@ -1,6 +1,7 @@
 const URLS = {
   auth: 'https://functions.poehali.dev/2af8a493-4b0f-4728-9b44-595ad8d4e50f',
   chats: 'https://functions.poehali.dev/95f220d4-6f2d-4a0c-94b0-d5b3b286afd3',
+  upload: 'https://functions.poehali.dev/a9c74801-66be-4f54-90be-9eab93b57c18',
 };
 
 function getSessionId(): string {
@@ -86,5 +87,17 @@ export const api = {
     request('chats', '/messages/read', {
       method: 'POST',
       body: JSON.stringify({ chat_id: chatId }),
+    }),
+
+  sendFileMessage: (chatId: number, text: string, fileUrl: string, fileName: string, type: 'image' | 'file') =>
+    request('chats', '/messages', {
+      method: 'POST',
+      body: JSON.stringify({ chat_id: chatId, text, file_url: fileUrl, file_name: fileName, type }),
+    }),
+
+  uploadFile: (fileName: string, fileDataB64: string, mimeType: string) =>
+    request('upload', '/', {
+      method: 'POST',
+      body: JSON.stringify({ file_name: fileName, file_data: fileDataB64, mime_type: mimeType }),
     }),
 };

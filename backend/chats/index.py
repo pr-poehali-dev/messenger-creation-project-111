@@ -224,16 +224,22 @@ def handler(event: dict, context) -> dict:
             body = json.loads(event.get('body') or '{}')
             chat_id = int(body.get('chat_id', 0))
             text = body.get('text', '').strip()
+            file_url = body.get('file_url', None)
+            file_name = body.get('file_name', None)
+            msg_type = body.get('type', 'text')
 
-            if not chat_id or not text:
-                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Укажите chat_id и text'})}
+            if not chat_id or (not text and not file_url):
+                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Укажите chat_id и text или файл'})}
             if not is_member(chat_id, user_id, conn):
                 return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Нет доступа'})}
 
+            display_text = text or file_name or 'Файл'
+
             with conn.cursor() as cur:
                 cur.execute(
-                    f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text) VALUES (%s, %s, %s) RETURNING id, created_at",
-                    (chat_id, user_id, text)
+                    f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, type, file_url, file_name) "
+                    f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, created_at",
+                    (chat_id, user_id, display_text, msg_type, file_url, file_name)
                 )
                 msg_id, created_at = cur.fetchone()
                 cur.execute(
@@ -249,7 +255,8 @@ def handler(event: dict, context) -> dict:
                     'id': msg_id, 'senderId': user_id, 'isMe': True,
                     'senderName': urow[0] if urow else '',
                     'senderAvatar': urow[1] if urow else '1',
-                    'text': text, 'type': 'text',
+                    'text': display_text, 'type': msg_type,
+                    'fileUrl': file_url, 'fileName': file_name,
                     'time': created_at.strftime('%H:%M'), 'read': False,
                 }
             })}
