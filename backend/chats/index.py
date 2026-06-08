@@ -81,16 +81,19 @@ def handler(event: dict, context) -> dict:
                             WHERE cm3.chat_id = c.id AND u.id != %s LIMIT 1) as other_avatar,
                         (SELECT u.online FROM {SCHEMA}.users u
                             JOIN {SCHEMA}.chat_members cm3 ON cm3.user_id = u.id
-                            WHERE cm3.chat_id = c.id AND u.id != %s LIMIT 1) as other_online
+                            WHERE cm3.chat_id = c.id AND u.id != %s LIMIT 1) as other_online,
+                        (SELECT u.id FROM {SCHEMA}.users u
+                            JOIN {SCHEMA}.chat_members cm3 ON cm3.user_id = u.id
+                            WHERE cm3.chat_id = c.id AND u.id != %s LIMIT 1) as other_user_id
                     FROM {SCHEMA}.chats c
                     JOIN {SCHEMA}.chat_members cm ON cm.chat_id = c.id AND cm.user_id = %s
                     ORDER BY last_time DESC NULLS LAST
-                """, (user_id, user_id, user_id, user_id, user_id, user_id))
+                """, (user_id, user_id, user_id, user_id, user_id, user_id, user_id))
                 rows = cur.fetchall()
 
             chats = []
             for r in rows:
-                cid, ctype, cname, cavatar, members, last_msg, last_time, unread, oname, oavatar, oonline = r
+                cid, ctype, cname, cavatar, members, last_msg, last_time, unread, oname, oavatar, oonline, ouid = r
                 display_name = cname if ctype != 'direct' else (oname or 'Пользователь')
                 display_avatar = cavatar if ctype != 'direct' else (oavatar or '1')
                 chats.append({
@@ -99,6 +102,7 @@ def handler(event: dict, context) -> dict:
                     'lastMessage': last_msg or '',
                     'lastTime': last_time.strftime('%H:%M') if last_time else '',
                     'unread': int(unread), 'online': bool(oonline),
+                    'otherUserId': ouid,
                 })
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'chats': chats})}
 

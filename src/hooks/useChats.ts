@@ -11,6 +11,7 @@ export interface ApiChat {
   lastTime: string;
   unread: number;
   online: boolean;
+  otherUserId?: number;
 }
 
 export interface ApiMessage {

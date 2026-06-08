@@ -1,149 +1,178 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import Avatar from './Avatar';
+import { useWebRTC, IncomingCall } from '@/hooks/useWebRTC';
 
 interface CallOverlayProps {
-  type: 'voice' | 'video';
-  chatName: string;
-  onEnd: () => void;
+  webrtc: ReturnType<typeof useWebRTC>;
+  chatName?: string;
 }
 
-const CallOverlay: React.FC<CallOverlayProps> = ({ type, chatName, onEnd }) => {
-  const [duration, setDuration] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const [speakerOff, setSpeakerOff] = useState(false);
-  const [cameraOff, setCameraOff] = useState(false);
-  const [phase, setPhase] = useState<'calling' | 'connected'>('calling');
+function pad(n: number) { return String(n).padStart(2, '0'); }
+
+const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
+  const {
+    status, isMuted, isCameraOff,
+    localVideoRef, remoteVideoRef,
+    hangUp, toggleMute, toggleCamera,
+    localStream,
+  } = webrtc;
+
+  const [seconds, setSeconds] = useState(0);
 
   useEffect(() => {
-    const connectTimer = setTimeout(() => setPhase('connected'), 2500);
-    return () => clearTimeout(connectTimer);
-  }, []);
+    if (status !== 'active') { setSeconds(0); return; }
+    const t = setInterval(() => setSeconds(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [status]);
 
-  useEffect(() => {
-    if (phase !== 'connected') return;
-    const interval = setInterval(() => setDuration(d => d + 1), 1000);
-    return () => clearInterval(interval);
-  }, [phase]);
+  const duration = `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
+  const isVideo = (localStream.current?.getVideoTracks().length ?? 0) > 0;
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  };
+  if (status === 'idle' || status === 'ended') return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{
-        background: 'rgba(0,0,0,0.85)',
-        backdropFilter: 'blur(20px)',
-      }}
-    >
-      {/* Animated bg */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div
-          className="absolute w-96 h-96 rounded-full opacity-20"
-          style={{
-            background: 'radial-gradient(circle, var(--neon-purple), transparent)',
-            top: '10%', left: '20%',
-            animation: 'pulse 3s ease-in-out infinite',
-          }}
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#0a0a12' }}>
+      {/* Remote video */}
+      {isVideo ? (
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ opacity: status === 'active' ? 1 : 0.3 }}
         />
-        <div
-          className="absolute w-64 h-64 rounded-full opacity-15"
-          style={{
-            background: 'radial-gradient(circle, var(--neon-cyan), transparent)',
-            bottom: '20%', right: '15%',
-            animation: 'pulse 4s ease-in-out infinite 1s',
-          }}
-        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="w-28 h-28 rounded-full flex items-center justify-center text-5xl font-black text-white"
+            style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
+          >
+            {chatName.charAt(0).toUpperCase()}
+          </div>
+        </div>
+      )}
+
+      {/* Gradient overlay */}
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 35%, transparent 55%, rgba(0,0,0,0.75) 100%)' }} />
+
+      {/* Top info */}
+      <div className="relative z-10 px-5 pt-12">
+        <p className="text-white font-bold text-xl">{chatName}</p>
+        <p className="text-sm mt-1" style={{ color: status === 'active' ? 'var(--neon-cyan)' : 'hsl(var(--muted-foreground))' }}>
+          {status === 'active' ? duration : status === 'outgoing' ? 'Вызов...' : 'Соединение...'}
+        </p>
       </div>
 
-      <div className="flex flex-col items-center gap-6 animate-scale-in relative z-10">
-        {/* Avatar with rings */}
-        <div className="relative flex items-center justify-center">
-          {phase === 'calling' && (
-            <>
-              <div
-                className="absolute rounded-full animate-ping"
-                style={{ width: 140, height: 140, border: '2px solid rgba(139,92,246,0.3)' }}
-              />
-              <div
-                className="absolute rounded-full animate-ping"
-                style={{ width: 170, height: 170, border: '1px solid rgba(139,92,246,0.15)', animationDelay: '0.5s' }}
-              />
-            </>
-          )}
-          <Avatar seed="2" name={chatName} size={100} online />
-        </div>
-
-        <div className="text-center">
-          <h3 className="text-2xl font-bold text-white mb-1">{chatName}</h3>
-          <p className="text-sm" style={{ color: phase === 'connected' ? 'var(--neon-green)' : 'hsl(var(--muted-foreground))' }}>
-            {phase === 'calling'
-              ? type === 'voice' ? '📞 Вызов...' : '🎥 Видеозвонок...'
-              : `● Соединено · ${formatTime(duration)}`
-            }
-          </p>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-4 mt-2">
-          <CallBtn
-            icon={muted ? 'MicOff' : 'Mic'}
-            label={muted ? 'Вкл микрофон' : 'Выкл микрофон'}
-            active={muted}
-            onClick={() => setMuted(!muted)}
+      {/* Local video PiP */}
+      {isVideo && (
+        <div
+          className="absolute top-24 right-4 z-20 rounded-2xl overflow-hidden"
+          style={{ width: 90, height: 130, border: '2px solid rgba(255,255,255,0.2)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}
+        >
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover"
+            style={{ transform: 'scaleX(-1)' }}
           />
-          {type === 'video' && (
-            <CallBtn
-              icon={cameraOff ? 'VideoOff' : 'Video'}
-              label={cameraOff ? 'Вкл камеру' : 'Выкл камеру'}
-              active={cameraOff}
-              onClick={() => setCameraOff(!cameraOff)}
-            />
+          {isCameraOff && (
+            <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}>
+              <Icon name="VideoOff" size={20} className="text-white" />
+            </div>
           )}
-          <CallBtn
-            icon={speakerOff ? 'VolumeX' : 'Volume2'}
-            label="Динамик"
-            active={speakerOff}
-            onClick={() => setSpeakerOff(!speakerOff)}
-          />
-          <CallBtn icon="MoreHorizontal" label="Ещё" onClick={() => {}} />
+        </div>
+      )}
 
-          {/* End call */}
-          <button
-            onClick={onEnd}
-            className="w-16 h-16 rounded-full flex items-center justify-center transition-all hover:scale-110"
-            style={{
-              background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-              boxShadow: '0 0 25px rgba(239,68,68,0.5)',
-            }}
-          >
-            <Icon name="PhoneOff" size={24} className="text-white" />
-          </button>
+      {/* Controls */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 px-6 pb-12">
+        <div className="flex items-center justify-center gap-5">
+          <CallBtn icon={isMuted ? 'MicOff' : 'Mic'} label={isMuted ? 'Включить' : 'Микрофон'} active={isMuted} onClick={toggleMute} />
+          {isVideo && (
+            <CallBtn icon={isCameraOff ? 'VideoOff' : 'Video'} label={isCameraOff ? 'Включить' : 'Камера'} active={isCameraOff} onClick={toggleCamera} />
+          )}
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onClick={hangUp}
+              className="w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95"
+              style={{ background: '#ef4444', boxShadow: '0 0 24px rgba(239,68,68,0.5)' }}
+            >
+              <Icon name="PhoneOff" size={26} className="text-white" />
+            </button>
+            <span className="text-xs text-white opacity-70">Завершить</span>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-const CallBtn: React.FC<{ icon: string; label: string; active?: boolean; onClick: () => void }> = ({
-  icon, label, active, onClick
-}) => (
-  <button
-    onClick={onClick}
-    title={label}
-    className="w-14 h-14 rounded-full flex items-center justify-center flex-col gap-0.5 transition-all hover:scale-110"
-    style={{
-      background: active ? 'rgba(139,92,246,0.3)' : 'rgba(255,255,255,0.08)',
-      border: active ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.1)',
-      color: active ? 'var(--neon-purple)' : 'white',
-    }}
+// Экран входящего звонка
+interface IncomingCallScreenProps {
+  incoming: IncomingCall;
+  onAccept: () => void;
+  onReject: () => void;
+}
+
+export const IncomingCallScreen: React.FC<IncomingCallScreenProps> = ({ incoming, onAccept, onReject }) => (
+  <div
+    className="fixed inset-0 z-50 flex flex-col items-center justify-between py-16 px-6"
+    style={{ background: 'linear-gradient(160deg, #1a0533 0%, #0a0a12 100%)' }}
   >
-    <Icon name={icon} size={20} />
-  </button>
+    <div className="flex flex-col items-center gap-4 mt-10">
+      <div
+        className="w-28 h-28 rounded-full flex items-center justify-center text-5xl font-black text-white"
+        style={{
+          background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))',
+          boxShadow: '0 0 40px rgba(139,92,246,0.5)',
+          animation: 'pulse 2s infinite',
+        }}
+      >
+        {incoming.fromName.charAt(0).toUpperCase()}
+      </div>
+      <h2 className="text-2xl font-bold text-white">{incoming.fromName}</h2>
+      <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+        Входящий {incoming.type === 'video' ? 'видеозвонок' : 'голосовой звонок'}
+      </p>
+    </div>
+
+    <div className="flex items-center gap-16">
+      <div className="flex flex-col items-center gap-2">
+        <button
+          onClick={onReject}
+          className="w-16 h-16 rounded-full flex items-center justify-center active:scale-95"
+          style={{ background: '#ef4444', boxShadow: '0 0 20px rgba(239,68,68,0.4)' }}
+        >
+          <Icon name="PhoneOff" size={26} className="text-white" />
+        </button>
+        <span className="text-xs text-white opacity-70">Отклонить</span>
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <button
+          onClick={onAccept}
+          className="w-16 h-16 rounded-full flex items-center justify-center active:scale-95"
+          style={{ background: '#22c55e', boxShadow: '0 0 20px rgba(34,197,94,0.4)' }}
+        >
+          <Icon name={incoming.type === 'video' ? 'Video' : 'Phone'} size={26} className="text-white" />
+        </button>
+        <span className="text-xs text-white opacity-70">Принять</span>
+      </div>
+    </div>
+  </div>
+);
+
+const CallBtn: React.FC<{ icon: string; label: string; active: boolean; onClick: () => void }> = ({ icon, label, active, onClick }) => (
+  <div className="flex flex-col items-center gap-2">
+    <button
+      onClick={onClick}
+      className="w-14 h-14 rounded-full flex items-center justify-center active:scale-95"
+      style={{ background: active ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}
+    >
+      <Icon name={icon} size={22} className="text-white" />
+    </button>
+    <span className="text-xs text-white opacity-70">{label}</span>
+  </div>
 );
 
 export default CallOverlay;

@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 import Avatar from './Avatar';
 import { useMessages, ApiMessage, ApiChat } from '@/hooks/useChats';
+import { useWebRTC } from '@/hooks/useWebRTC';
 import { api } from '@/api/client';
 
 interface ChatWindowProps {
   chatId: number;
   chat?: ApiChat;
-  onCallStart: (type: 'voice' | 'video', chatName: string) => void;
+  webrtc: ReturnType<typeof useWebRTC>;
   onBack?: () => void;
 }
 
@@ -50,7 +51,7 @@ interface FilePreview {
   isImage: boolean;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart, onBack }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack }) => {
   const { messages, sendMessage, sendFileMessage } = useMessages(chatId);
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
@@ -158,6 +159,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart, onBa
 
   const canSend = (!!text.trim() || !!filePreview) && !uploading;
 
+  const handleCall = async (type: 'voice' | 'video') => {
+    const otherUserId = chat?.otherUserId;
+    if (!otherUserId) return;
+    const callId = `${chatId}-${Date.now()}`;
+    // Отправляем ring-сигнал чтобы у собеседника зазвонил телефон
+    await api.sendSignal(callId, otherUserId, 'ring', {
+      callType: type,
+      fromName: chatName,
+      fromAvatar: chatAvatar,
+    });
+    // Запускаем WebRTC (шлёт offer)
+    webrtc.startCall(otherUserId, type, callId);
+  };
+
   return (
     <div
       className="flex flex-col h-full"
@@ -191,10 +206,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, onCallStart, onBa
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {chatType !== 'channel' && (
+          {chatType === 'direct' && chat?.otherUserId && (
             <>
-              <HeaderBtn onClick={() => onCallStart('voice', chatName)} icon="Phone" tooltip="Голосовой звонок" />
-              <HeaderBtn onClick={() => onCallStart('video', chatName)} icon="Video" tooltip="Видеозвонок" />
+              <HeaderBtn onClick={() => handleCall('voice')} icon="Phone" tooltip="Голосовой звонок" />
+              <HeaderBtn onClick={() => handleCall('video')} icon="Video" tooltip="Видеозвонок" />
             </>
           )}
           <HeaderBtn onClick={() => {}} icon="Search" tooltip="Поиск" />
