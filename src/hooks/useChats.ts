@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/api/client';
 
 export interface ApiChat {
@@ -28,6 +28,72 @@ export interface ApiMessage {
   read: boolean;
 }
 
+// Глобальный polling — один на всё приложение
+// Подписчики регистрируются через useEffect и получают уведомления об изменениях
+type Listener = (chatVersion: string, msgVersion: string | null) => void;
+
+class PollingManager {
+  private listeners = new Map<string, Listener>();
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private chatId: number | null = null;
+  private lastChatVersion = '';
+  private lastMsgVersion = '';
+  private running = false;
+
+  setActiveChatId(id: number | null) {
+    this.chatId = id;
+    this.lastMsgVersion = '';
+  }
+
+  subscribe(key: string, fn: Listener) {
+    this.listeners.set(key, fn);
+    if (!this.running) this.start();
+  }
+
+  unsubscribe(key: string) {
+    this.listeners.delete(key);
+    if (this.listeners.size === 0) this.stop();
+  }
+
+  private start() {
+    this.running = true;
+    this.tick();
+  }
+
+  private stop() {
+    this.running = false;
+    if (this.timer) clearTimeout(this.timer);
+  }
+
+  private async tick() {
+    if (!this.running) return;
+    try {
+      if (localStorage.getItem('session_id')) {
+        const data = await api.checkUpdates(this.chatId ?? undefined) as {
+          chat_version: string;
+          msg_version: string | null;
+        };
+
+        const chatChanged = data.chat_version !== this.lastChatVersion;
+        const msgChanged = data.msg_version !== null && data.msg_version !== this.lastMsgVersion;
+
+        if (chatChanged || msgChanged) {
+          if (chatChanged) this.lastChatVersion = data.chat_version;
+          if (msgChanged) this.lastMsgVersion = data.msg_version!;
+          this.listeners.forEach(fn => fn(
+            chatChanged ? data.chat_version : '',
+            msgChanged ? data.msg_version : null,
+          ));
+        }
+      }
+    } catch { /* ignore */ }
+
+    this.timer = setTimeout(() => this.tick(), 2000);
+  }
+}
+
+const polling = new PollingManager();
+
 export function useChats() {
   const [chats, setChats] = useState<ApiChat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,12 +112,17 @@ export function useChats() {
   }, []);
 
   useEffect(() => {
+    // Первая загрузка
     fetchChats();
-    const interval = setInterval(fetchChats, 5000);
-    return () => clearInterval(interval);
+
+    // Подписываемся на polling — грузим чаты только при изменении chat_version
+    polling.subscribe('chats', (chatVersion) => {
+      if (chatVersion) fetchChats();
+    });
+
+    return () => polling.unsubscribe('chats');
   }, [fetchChats]);
 
-  // Update browser tab title with unread count
   useEffect(() => {
     const total = chats.reduce((sum, c) => sum + c.unread, 0);
     document.title = total > 0 ? `(${total}) PULSE — Мессенджер` : 'PULSE — Мессенджер';
@@ -63,27 +134,37 @@ export function useChats() {
 export function useMessages(chatId: number | null) {
   const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
 
   const fetchMessages = useCallback(async () => {
-    if (!chatId) return;
+    if (!chatIdRef.current) return;
     setLoading(true);
     try {
-      const data = await api.getMessages(chatId);
+      const data = await api.getMessages(chatIdRef.current);
       setMessages(data.messages as ApiMessage[]);
-      await api.markRead(chatId);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  }, [chatId]);
+      await api.markRead(chatIdRef.current);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
 
   useEffect(() => {
     setMessages([]);
+    if (!chatId) return;
+
+    polling.setActiveChatId(chatId);
     fetchMessages();
-    const interval = setInterval(fetchMessages, 3000);
-    return () => clearInterval(interval);
-  }, [fetchMessages]);
+
+    // Подписываемся — грузим сообщения только при изменении msg_version
+    polling.subscribe('messages', (_, msgVersion) => {
+      if (msgVersion) fetchMessages();
+    });
+
+    return () => {
+      polling.unsubscribe('messages');
+      polling.setActiveChatId(null);
+    };
+  }, [chatId, fetchMessages]);
 
   const sendMessage = async (text: string) => {
     if (!chatId) return;

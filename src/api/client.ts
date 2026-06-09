@@ -4,6 +4,7 @@ const URLS = {
   upload: 'https://functions.poehali.dev/a9c74801-66be-4f54-90be-9eab93b57c18',
   signal: 'https://functions.poehali.dev/fea04015-cf4e-4b0a-a39d-52641f674f9d',
   push: 'https://functions.poehali.dev/96f518a6-4708-420f-8e4a-034fdc024ead',
+  poll: 'https://functions.poehali.dev/840205d1-5dd6-40f6-9453-a0c574bb15fe',
 };
 
 function getSessionId(): string {
@@ -118,6 +119,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ call_id: callId }),
     }),
+
+  // ---- Poll ----
+  checkUpdates: (chatId?: number) =>
+    request('poll', chatId ? `/?chat_id=${chatId}` : '/', { method: 'GET' }),
 
   // ---- Push ----
   getPushVapidKey: () =>

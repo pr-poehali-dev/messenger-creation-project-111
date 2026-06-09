@@ -1,4 +1,5 @@
 {
+  "poll": "https://functions.poehali.dev/840205d1-5dd6-40f6-9453-a0c574bb15fe",
   "push": "https://functions.poehali.dev/96f518a6-4708-420f-8e4a-034fdc024ead",
   "vapid-gen": "https://functions.poehali.dev/52067b83-9831-4214-9eda-d2d679e9fe31",
   "signal": "https://functions.poehali.dev/fea04015-cf4e-4b0a-a39d-52641f674f9d",
