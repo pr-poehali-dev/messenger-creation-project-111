@@ -1,0 +1,2 @@
+ALTER TABLE t_p31400750_messenger_creation_p.messages DROP CONSTRAINT messages_type_check;
+ALTER TABLE t_p31400750_messenger_creation_p.messages ADD CONSTRAINT messages_type_check CHECK (type IN ('text', 'image', 'file', 'voice', 'call'));
