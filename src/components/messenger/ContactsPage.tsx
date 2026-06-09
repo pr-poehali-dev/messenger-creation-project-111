@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 import Avatar from './Avatar';
-import { useUsers } from '@/hooks/useChats';
 import { api } from '@/api/client';
 
 interface ContactsPageProps {
@@ -20,13 +19,60 @@ interface ApiUser {
 }
 
 const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
-  const [search, setSearch] = useState('');
+  const [contacts, setContacts] = useState<ApiUser[]>([]);
   const [selected, setSelected] = useState<ApiUser | null>(null);
   const [creating, setCreating] = useState(false);
-  const users = useUsers(search || undefined);
+  const [removing, setRemoving] = useState(false);
 
-  const online = users.filter(u => u.online);
-  const offline = users.filter(u => !u.online);
+  // Поиск по @username для добавления
+  const [addQuery, setAddQuery] = useState('');
+  const [searchResult, setSearchResult] = useState<ApiUser | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [showAddPanel, setShowAddPanel] = useState(false);
+
+  const loadContacts = useCallback(async () => {
+    try {
+      const data = await api.getContacts();
+      setContacts((data.contacts as ApiUser[]) || []);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadContacts(); }, [loadContacts]);
+
+  const handleSearch = async () => {
+    const q = addQuery.trim().replace(/^@+/, '');
+    if (!q) return;
+    setSearching(true);
+    setSearchError('');
+    setSearchResult(null);
+    try {
+      const data = await api.getUsers(q);
+      const users = (data.users as ApiUser[]) || [];
+      if (users.length === 0) {
+        setSearchError('Пользователь не найден');
+      } else {
+        setSearchResult(users[0]);
+      }
+    } catch {
+      setSearchError('Ошибка поиска');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleAdd = async (user: ApiUser) => {
+    setAdding(true);
+    try {
+      await api.addContact(user.id);
+      await loadContacts();
+      setSearchResult(null);
+      setAddQuery('');
+      setShowAddPanel(false);
+    } catch { /* ignore */ }
+    finally { setAdding(false); }
+  };
 
   const handleWriteMessage = async () => {
     if (!selected) return;
@@ -41,13 +87,27 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
     }
   };
 
-  const handleSelect = (u: ApiUser) => setSelected(u);
+  const handleRemove = async () => {
+    if (!selected) return;
+    setRemoving(true);
+    try {
+      await api.removeContact(selected.id);
+      setContacts(prev => prev.filter(c => c.id !== selected.id));
+      setSelected(null);
+    } catch { /* ignore */ }
+    finally { setRemoving(false); }
+  };
+
   const handleBack = () => setSelected(null);
+
+  const online = contacts.filter(u => u.online);
+  const offline = contacts.filter(u => !u.online);
+
+  const isContact = (id: number) => contacts.some(c => c.id === id);
 
   return (
     <div className="flex h-full w-full overflow-hidden">
-      {/* Left panel — contact list */}
-      {/* On mobile: shown when no contact selected; on desktop: always shown */}
+      {/* Left panel */}
       <div
         className={`${selected ? 'hidden md:flex' : 'flex'} flex-col h-full w-full md:w-[300px] flex-shrink-0`}
         style={{
@@ -57,24 +117,82 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
         }}
       >
         <div className="px-4 pt-5 pb-3">
-          <h2 className="text-lg font-bold text-white mb-4">Контакты</h2>
-          <div className="relative">
-            <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'hsl(var(--muted-foreground))' }} />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Поиск контактов..."
-              className="w-full pl-9 pr-3 py-2 rounded-xl text-sm outline-none text-white placeholder:text-muted-foreground"
-              style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)', fontFamily: 'inherit' }}
-            />
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-white">Контакты</h2>
+            <button
+              onClick={() => { setShowAddPanel(p => !p); setSearchResult(null); setAddQuery(''); setSearchError(''); }}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-105"
+              style={{ background: showAddPanel ? 'var(--neon-purple)' : 'var(--surface-3)', color: 'white' }}
+              title="Добавить контакт"
+            >
+              <Icon name={showAddPanel ? 'X' : 'UserPlus'} size={16} />
+            </button>
           </div>
+
+          {/* Панель добавления */}
+          {showAddPanel && (
+            <div
+              className="mb-3 p-3 rounded-2xl animate-fade-in"
+              style={{ background: 'var(--surface-3)', border: '1px solid rgba(139,92,246,0.3)' }}
+            >
+              <p className="text-xs mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Введите точный @username
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={addQuery}
+                  onChange={e => { setAddQuery(e.target.value); setSearchError(''); setSearchResult(null); }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
+                  placeholder="@username"
+                  className="flex-1 px-3 py-1.5 rounded-xl text-sm outline-none text-white placeholder:text-muted-foreground"
+                  style={{ background: 'var(--surface-4)', border: '1px solid var(--glass-border)', fontFamily: 'inherit' }}
+                />
+                <button
+                  onClick={handleSearch}
+                  disabled={searching || !addQuery.trim()}
+                  className="px-3 py-1.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
+                >
+                  {searching ? <Icon name="Loader2" size={14} className="animate-spin" /> : <Icon name="Search" size={14} />}
+                </button>
+              </div>
+              {searchError && (
+                <p className="text-xs mt-2" style={{ color: '#f87171' }}>{searchError}</p>
+              )}
+              {searchResult && (
+                <div className="mt-2 flex items-center gap-2 p-2 rounded-xl" style={{ background: 'var(--surface-4)' }}>
+                  <Avatar seed={searchResult.avatar_seed} name={searchResult.name} size={36} online={searchResult.online} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-white truncate">{searchResult.name}</div>
+                    <div className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{searchResult.username}</div>
+                  </div>
+                  {isContact(searchResult.id) ? (
+                    <span className="text-xs px-2 py-1 rounded-lg" style={{ color: 'var(--neon-cyan)', background: 'rgba(6,214,245,0.1)' }}>
+                      Добавлен
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleAdd(searchResult)}
+                      disabled={adding}
+                      className="px-2 py-1 rounded-lg text-xs font-semibold text-white disabled:opacity-60"
+                      style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
+                    >
+                      {adding ? <Icon name="Loader2" size={12} className="animate-spin" /> : 'Добавить'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 pb-2">
-          {users.length === 0 && (
+          {contacts.length === 0 && !showAddPanel && (
             <div className="flex flex-col items-center justify-center h-40 gap-2 opacity-40">
               <Icon name="Users" size={28} style={{ color: 'hsl(var(--muted-foreground))' }} />
-              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Никого не найдено</p>
+              <p className="text-xs text-center" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Контактов пока нет.<br />Добавьте по @username
+              </p>
             </div>
           )}
           {online.length > 0 && (
@@ -85,7 +203,7 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
                 </span>
               </div>
               {online.map(u => (
-                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => handleSelect(u)} />
+                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => setSelected(u)} />
               ))}
               {offline.length > 0 && <div className="mx-2 my-2" style={{ height: 1, background: 'var(--glass-border)' }} />}
             </>
@@ -98,7 +216,7 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
                 </span>
               </div>
               {offline.map(u => (
-                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => handleSelect(u)} />
+                <ContactItem key={u.id} user={u} active={selected?.id === u.id} onClick={() => setSelected(u)} />
               ))}
             </>
           )}
@@ -106,14 +224,12 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
       </div>
 
       {/* Right panel — contact details */}
-      {/* On mobile: shown when contact selected; on desktop: always shown */}
       <div
         className={`${selected ? 'flex' : 'hidden md:flex'} flex-1 flex-col overflow-y-auto`}
         style={{ background: 'var(--surface-1)', paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 64px)' }}
       >
         {selected ? (
           <>
-            {/* Mobile back button */}
             <div className="md:hidden flex items-center px-4 pt-4 pb-2">
               <button
                 onClick={handleBack}
@@ -158,6 +274,15 @@ const ContactsPage: React.FC<ContactsPageProps> = ({ onChatCreated }) => {
                   {creating ? <Icon name="Loader2" size={16} className="animate-spin" /> : <Icon name="MessageCircle" size={16} />}
                   Написать
                 </button>
+                <button
+                  onClick={handleRemove}
+                  disabled={removing}
+                  className="w-10 flex items-center justify-center rounded-xl transition-all hover:scale-105 disabled:opacity-60"
+                  style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}
+                  title="Удалить контакт"
+                >
+                  {removing ? <Icon name="Loader2" size={16} className="animate-spin" /> : <Icon name="UserMinus" size={16} />}
+                </button>
               </div>
             </div>
           </>
@@ -191,7 +316,6 @@ const ContactItem: React.FC<{ user: ApiUser; active: boolean; onClick: () => voi
       <div className="font-semibold text-sm text-white truncate">{user.name}</div>
       <div className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{user.username}</div>
     </div>
-    <Icon name="ChevronRight" size={14} className="md:hidden flex-shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
   </div>
 );
 

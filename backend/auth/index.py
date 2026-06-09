@@ -17,7 +17,7 @@ import psycopg2
 SCHEMA = os.environ.get('MAIN_DB_SCHEMA', 't_p31400750_messenger_creation_p')
 CORS = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Session-Id',
 }
 
@@ -205,26 +205,18 @@ def handler(event: dict, context) -> dict:
                        'phone': row[4], 'avatar_seed': row[5], 'online': row[6], 'email': row[7]}
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'user': updated})}
 
-        # GET ?action=users
+        # GET ?action=users&q=username — поиск только по точному username (для добавления)
         if method == 'GET' and action == 'users':
-            q = params.get('q', '').strip()
+            q = params.get('q', '').strip().lstrip('@').lower()
+            if not q:
+                return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'users': []})}
             with conn.cursor() as cur:
-                if q:
-                    like = f'%{q}%'
-                    cur.execute(
-                        f"SELECT id, name, username, bio, phone, avatar_seed, online, last_seen "
-                        f"FROM {SCHEMA}.users WHERE id != %s AND (name ILIKE %s OR username ILIKE %s) "
-                        f"ORDER BY online DESC, name LIMIT 30",
-                        (user_id, like, like)
-                    )
-                else:
-                    cur.execute(
-                        f"SELECT id, name, username, bio, phone, avatar_seed, online, last_seen "
-                        f"FROM {SCHEMA}.users WHERE id != %s ORDER BY online DESC, name LIMIT 50",
-                        (user_id,)
-                    )
+                cur.execute(
+                    f"SELECT id, name, username, bio, phone, avatar_seed, online, last_seen "
+                    f"FROM {SCHEMA}.users WHERE id != %s AND LOWER(username) = %s LIMIT 1",
+                    (user_id, q)
+                )
                 rows = cur.fetchall()
-
             users_list = []
             for r in rows:
                 uid, uname, uusername, ubio, uphone, uavatar, uonline, ulast = r
@@ -236,6 +228,63 @@ def handler(event: dict, context) -> dict:
                 })
             return {'statusCode': 200, 'headers': CORS,
                     'body': json.dumps({'users': users_list})}
+
+        # GET ?action=contacts — список своих контактов
+        if method == 'GET' and action == 'contacts':
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT u.id, u.name, u.username, u.bio, u.phone, u.avatar_seed, u.online, u.last_seen "
+                    f"FROM {SCHEMA}.contacts c "
+                    f"JOIN {SCHEMA}.users u ON u.id = c.contact_id "
+                    f"WHERE c.owner_id = %s "
+                    f"ORDER BY u.online DESC, u.name ASC",
+                    (user_id,)
+                )
+                rows = cur.fetchall()
+            contacts_list = []
+            for r in rows:
+                uid, uname, uusername, ubio, uphone, uavatar, uonline, ulast = r
+                contacts_list.append({
+                    'id': uid, 'name': uname, 'username': uusername,
+                    'bio': ubio, 'phone': uphone, 'avatar_seed': uavatar,
+                    'online': uonline,
+                    'lastSeen': ulast.strftime('%d.%m %H:%M') if ulast else '',
+                })
+            return {'statusCode': 200, 'headers': CORS,
+                    'body': json.dumps({'contacts': contacts_list})}
+
+        # POST ?action=contacts — добавить контакт
+        if method == 'POST' and action == 'contacts':
+            body = json.loads(event.get('body') or '{}')
+            contact_id = int(body.get('contact_id', 0))
+            if not contact_id or contact_id == user_id:
+                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Неверный пользователь'})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT 1 FROM {SCHEMA}.users WHERE id = %s", (contact_id,)
+                )
+                if not cur.fetchone():
+                    return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Пользователь не найден'})}
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.contacts (owner_id, contact_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (user_id, contact_id)
+                )
+            conn.commit()
+            return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
+
+        # DELETE ?action=contacts — удалить контакт
+        if method == 'DELETE' and action == 'contacts':
+            body = json.loads(event.get('body') or '{}')
+            contact_id = int(body.get('contact_id', 0))
+            if not contact_id:
+                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Неверный пользователь'})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"DELETE FROM {SCHEMA}.contacts WHERE owner_id = %s AND contact_id = %s",
+                    (user_id, contact_id)
+                )
+            conn.commit()
+            return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
 
         return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Not found'})}
     finally:

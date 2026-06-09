@@ -63,6 +63,15 @@ export const api = {
   heartbeat: () =>
     request('auth', '/?action=heartbeat', { method: 'POST', body: '{}' }),
 
+  getContacts: () =>
+    request('auth', '/?action=contacts', { method: 'GET' }),
+
+  addContact: (contactId: number) =>
+    request('auth', '/?action=contacts', { method: 'POST', body: JSON.stringify({ contact_id: contactId }) }),
+
+  removeContact: (contactId: number) =>
+    request('auth', '/?action=contacts', { method: 'DELETE', body: JSON.stringify({ contact_id: contactId }) }),
+
   // ---- Chats ----
   getChats: () =>
     request('chats', '/?action=chats', { method: 'GET' }),
