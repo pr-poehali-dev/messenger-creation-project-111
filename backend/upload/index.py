@@ -26,6 +26,8 @@ ALLOWED_MIME = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
+    'audio/webm;codecs=opus',
 }
 MAX_SIZE_BYTES = 4 * 1024 * 1024  # 4 MB (base64 overhead ~33%, stays under 6MB request limit)
 
@@ -102,12 +104,14 @@ def handler(event: dict, context) -> dict:
         cdn_url = f"https://cdn.poehali.dev/projects/{access_key}/bucket/{key}"
 
         is_image = mime_type.startswith('image/')
+        is_voice = mime_type.startswith('audio/')
 
         return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({
             'url': cdn_url,
             'file_name': file_name,
             'mime_type': mime_type,
             'is_image': is_image,
+            'is_voice': is_voice,
             'size': len(file_bytes),
         })}
     finally:

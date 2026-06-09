@@ -3,6 +3,7 @@ import Icon from '@/components/ui/icon';
 import Avatar from './Avatar';
 import { useMessages, ApiMessage, ApiChat } from '@/hooks/useChats';
 import { useWebRTC } from '@/hooks/useWebRTC';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { api } from '@/api/client';
 
 interface ChatWindowProps {
@@ -53,6 +54,7 @@ interface FilePreview {
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack }) => {
   const { messages, sendMessage, sendFileMessage } = useMessages(chatId);
+  const voice = useVoiceRecorder();
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
@@ -184,6 +186,26 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
   const chatMembers = chat?.members || 0;
 
   const canSend = (!!text.trim() || !!filePreview) && !uploading;
+
+  // Отправка голосового сообщения
+  const handleSendVoice = async () => {
+    if (!voice.recording) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      const { blob, duration, mimeType } = voice.recording;
+      const arrayBuffer = await blob.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      const fileName = `voice_${duration}s.webm`;
+      const res = await api.uploadFile(fileName, b64, mimeType);
+      await sendFileMessage(res.url as string, fileName, false, 'voice');
+      voice.clear();
+    } catch (e: unknown) {
+      setUploadError(e instanceof Error ? e.message : 'Ошибка отправки');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleCall = async (type: 'voice' | 'video') => {
     const otherUserId = chat?.otherUserId;
@@ -355,6 +377,48 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
           </div>
         )}
 
+        {/* Voice recording UI */}
+        {(voice.isRecording || voice.recording) && (
+          <div className="mb-2 px-3 py-2 rounded-xl flex items-center gap-3"
+            style={{ background: 'var(--surface-3)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            {voice.isRecording ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+                <span className="text-sm text-white flex-1">
+                  {String(Math.floor(voice.duration / 60)).padStart(2,'0')}:{String(voice.duration % 60).padStart(2,'0')}
+                </span>
+                <button onClick={voice.cancel} className="text-xs px-2 py-1 rounded-lg" style={{ color: 'hsl(var(--muted-foreground))', background: 'var(--surface-4)' }}>
+                  Отмена
+                </button>
+                <button onClick={voice.stop}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}>
+                  <Icon name="Square" size={14} className="text-white" />
+                </button>
+              </>
+            ) : voice.recording ? (
+              <>
+                <Icon name="Mic" size={16} style={{ color: 'var(--neon-cyan)' }} className="flex-shrink-0" />
+                <span className="text-sm text-white flex-1">
+                  Голосовое · {voice.recording.duration}с
+                </span>
+                <audio src={voice.recording.url} controls className="h-7 flex-1" style={{ maxWidth: 140 }} />
+                <button onClick={voice.clear} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>
+                  <Icon name="X" size={13} />
+                </button>
+                <button onClick={handleSendVoice} disabled={uploading}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}>
+                  {uploading
+                    ? <Icon name="Loader2" size={14} className="text-white animate-spin" />
+                    : <Icon name="Send" size={14} className="text-white" />}
+                </button>
+              </>
+            ) : null}
+          </div>
+        )}
+
         {/* Input row */}
         <div className="flex items-end gap-2 px-3 py-2 rounded-2xl" style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}>
           {/* File attach button */}
@@ -394,20 +458,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
             <Icon name="Smile" size={18} />
           </button>
 
-          <button
-            onClick={handleSend}
-            disabled={!canSend}
-            className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all"
-            style={{
-              background: canSend ? 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' : 'var(--surface-4)',
-              boxShadow: canSend ? '0 0 15px rgba(139,92,246,0.4)' : 'none',
-            }}
-          >
-            {uploading
-              ? <Icon name="Loader2" size={16} className="text-white animate-spin" />
-              : <Icon name="Send" size={16} className="text-white" />
-            }
-          </button>
+          {/* Mic / Send */}
+          {canSend ? (
+            <button
+              onClick={handleSend}
+              className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all"
+              style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))', boxShadow: '0 0 15px rgba(139,92,246,0.4)' }}
+            >
+              {uploading
+                ? <Icon name="Loader2" size={16} className="text-white animate-spin" />
+                : <Icon name="Send" size={16} className="text-white" />}
+            </button>
+          ) : (
+            <button
+              onClick={voice.isRecording ? voice.stop : voice.start}
+              className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all"
+              style={{
+                background: voice.isRecording
+                  ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+                  : 'var(--surface-4)',
+                boxShadow: voice.isRecording ? '0 0 15px rgba(239,68,68,0.4)' : 'none',
+              }}
+            >
+              <Icon name={voice.isRecording ? 'Square' : 'Mic'} size={16}
+                style={{ color: voice.isRecording ? 'white' : 'hsl(var(--muted-foreground))' }} />
+            </button>
+          )}
         </div>
 
         {/* Drag hint */}
@@ -442,6 +518,21 @@ const MessageBubble: React.FC<{ msg: ApiMessage; isMe: boolean }> = ({ msg, isMe
             <p className="text-xs text-white" style={{ wordBreak: 'break-word' }}>{msg.text}</p>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (msg.type === 'voice' && msg.fileUrl) {
+    return (
+      <div className={`flex items-center gap-3 px-3 py-2.5 ${bubbleClass}`} style={{ minWidth: 200, maxWidth: 280 }}>
+        <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+          style={{ background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-4)' }}>
+          <Icon name="Mic" size={15} className="text-white" />
+        </div>
+        <audio src={msg.fileUrl} controls
+          className="flex-1 h-7"
+          style={{ minWidth: 0 }}
+        />
       </div>
     );
   }
