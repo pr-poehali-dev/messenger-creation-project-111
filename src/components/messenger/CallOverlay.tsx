@@ -12,10 +12,15 @@ function pad(n: number) { return String(n).padStart(2, '0'); }
 
 const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callType = 'voice' }) => {
   const {
-    status, isMuted, isCameraOff,
+    status, incomingCall, isMuted, isCameraOff,
     localStream, remoteStream,
     hangUp, toggleMute, toggleCamera,
   } = webrtc;
+
+  // При входящем/принятом звонке показываем имя звонящего, при исходящем — имя чата
+  const displayName = (status === 'active' && incomingCall?.fromName)
+    ? incomingCall.fromName
+    : chatName || incomingCall?.fromName || '...';
 
   const [seconds, setSeconds] = useState(0);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -71,7 +76,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callTy
           className="w-28 h-28 rounded-full flex items-center justify-center text-5xl font-black text-white"
           style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
         >
-          {chatName.charAt(0).toUpperCase()}
+          {displayName.charAt(0).toUpperCase()}
         </div>
       </div>
 
@@ -83,7 +88,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callTy
 
       {/* Имя и статус */}
       <div className="relative z-10 px-5 pt-12">
-        <p className="text-white font-bold text-xl">{chatName}</p>
+        <p className="text-white font-bold text-xl">{displayName}</p>
         <p className="text-sm mt-1" style={{ color: status === 'active' ? 'var(--neon-cyan)' : 'hsl(var(--muted-foreground))' }}>
           {status === 'active' ? duration : status === 'outgoing' ? 'Вызов...' : 'Соединение...'}
         </p>

@@ -78,7 +78,7 @@ export function useWebRTC(
     setLocalStream(null);
   }, []);
 
-  const cleanup = useCallback(async (callId?: string, missed = false) => {
+  const cleanup = useCallback((callId?: string, missed = false) => {
     // Сбрасываем PCref ДО закрытия, чтобы ontrack/onicecandidate не сработали
     const pc = pcRef.current;
     pcRef.current = null;
@@ -102,15 +102,11 @@ export function useWebRTC(
     peerUserIdRef.current = 0;
     pendingOfferRef.current = null;
 
-    if (cid) {
-      try { await api.clearSignals(cid); } catch { /* ignore */ }
-    }
-
-    // Уведомляем о завершении звонка
+    // Уведомляем о завершении и чистим сигналы без блокировки UI
     onCallEndRef.current?.({ type: endedType, duration, missed });
+    if (cid) api.clearSignals(cid).catch(() => {});
 
-    setStatus('ended');
-    setTimeout(() => setStatus('idle'), 1500);
+    setStatus('idle');
   }, [stopStream]);
 
   const flushIceCandidates = useCallback(async () => {
