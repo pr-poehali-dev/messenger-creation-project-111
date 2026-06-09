@@ -286,6 +286,74 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
 
+        # GET ?action=user_relation&user_id=X — статус отношений с пользователем
+        if method == 'GET' and action == 'user_relation':
+            target_id = int(params.get('user_id', 0))
+            if not target_id:
+                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'user_id required'})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT id, name, username, bio, phone, avatar_seed, online, last_seen "
+                    f"FROM {SCHEMA}.users WHERE id = %s", (target_id,)
+                )
+                urow = cur.fetchone()
+                if not urow:
+                    return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Не найден'})}
+                cur.execute(
+                    f"SELECT 1 FROM {SCHEMA}.contacts WHERE owner_id = %s AND contact_id = %s",
+                    (user_id, target_id)
+                )
+                is_contact = bool(cur.fetchone())
+                cur.execute(
+                    f"SELECT 1 FROM {SCHEMA}.blocked_users WHERE blocker_id = %s AND blocked_id = %s",
+                    (user_id, target_id)
+                )
+                is_blocked = bool(cur.fetchone())
+            uid, uname, uusername, ubio, uphone, uavatar, uonline, ulast = urow
+            return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({
+                'user': {
+                    'id': uid, 'name': uname, 'username': uusername,
+                    'bio': ubio, 'phone': uphone, 'avatar_seed': uavatar,
+                    'online': uonline,
+                    'lastSeen': ulast.strftime('%d.%m %H:%M') if ulast else '',
+                },
+                'is_contact': is_contact,
+                'is_blocked': is_blocked,
+            })}
+
+        # POST ?action=block — заблокировать
+        if method == 'POST' and action == 'block':
+            body = json.loads(event.get('body') or '{}')
+            target_id = int(body.get('user_id', 0))
+            if not target_id or target_id == user_id:
+                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Неверный пользователь'})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.blocked_users (blocker_id, blocked_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (user_id, target_id)
+                )
+                # При блокировке удаляем из контактов в обе стороны
+                cur.execute(
+                    f"DELETE FROM {SCHEMA}.contacts WHERE (owner_id = %s AND contact_id = %s) OR (owner_id = %s AND contact_id = %s)",
+                    (user_id, target_id, target_id, user_id)
+                )
+            conn.commit()
+            return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
+
+        # POST ?action=unblock — разблокировать
+        if method == 'POST' and action == 'unblock':
+            body = json.loads(event.get('body') or '{}')
+            target_id = int(body.get('user_id', 0))
+            if not target_id:
+                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Неверный пользователь'})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"DELETE FROM {SCHEMA}.blocked_users WHERE blocker_id = %s AND blocked_id = %s",
+                    (user_id, target_id)
+                )
+            conn.commit()
+            return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
+
         return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Not found'})}
     finally:
         conn.close()

@@ -72,6 +72,15 @@ export const api = {
   removeContact: (contactId: number) =>
     request('auth', '/?action=contacts', { method: 'DELETE', body: JSON.stringify({ contact_id: contactId }) }),
 
+  getUserRelation: (userId: number) =>
+    request('auth', `/?action=user_relation&user_id=${userId}`, { method: 'GET' }),
+
+  blockUser: (userId: number) =>
+    request('auth', '/?action=block', { method: 'POST', body: JSON.stringify({ user_id: userId }) }),
+
+  unblockUser: (userId: number) =>
+    request('auth', '/?action=unblock', { method: 'POST', body: JSON.stringify({ user_id: userId }) }),
+
   // ---- Chats ----
   getChats: () =>
     request('chats', '/?action=chats', { method: 'GET' }),
