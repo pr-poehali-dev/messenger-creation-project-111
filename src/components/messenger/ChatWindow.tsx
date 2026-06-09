@@ -302,7 +302,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
                     {msg.senderName}
                   </span>
                 )}
-                <MessageBubble msg={msg} isMe={msg.isMe} />
+                <MessageBubble msg={msg} isMe={msg.isMe} onCallback={handleCall} />
                 <div className={`flex items-center gap-1 mx-1 ${msg.isMe ? 'flex-row-reverse' : ''}`}>
                   <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>{msg.time}</span>
                   {msg.isMe && (
@@ -496,7 +496,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
 };
 
 /* Bubble renders text / image / file differently */
-const MessageBubble: React.FC<{ msg: ApiMessage; isMe: boolean }> = ({ msg, isMe }) => {
+const MessageBubble: React.FC<{
+  msg: ApiMessage;
+  isMe: boolean;
+  onCallback?: (type: 'voice' | 'video') => void;
+}> = ({ msg, isMe, onCallback }) => {
   const [imgError, setImgError] = useState(false);
 
   const bubbleClass = isMe ? 'msg-bubble-out text-white' : 'msg-bubble-in text-white';
@@ -540,9 +544,19 @@ const MessageBubble: React.FC<{ msg: ApiMessage; isMe: boolean }> = ({ msg, isMe
             style={{ color: isMissed ? '#f87171' : 'white' }}
           />
         </div>
-        <span className="text-sm" style={{ color: isMissed ? (isMe ? '#fca5a5' : '#f87171') : 'white' }}>
+        <span className="text-sm flex-1" style={{ color: isMissed ? (isMe ? '#fca5a5' : '#f87171') : 'white' }}>
           {msg.text}
         </span>
+        {onCallback && (
+          <button
+            onClick={() => onCallback(isVideo ? 'video' : 'voice')}
+            className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+            style={{ background: 'rgba(255,255,255,0.15)' }}
+            title="Перезвонить"
+          >
+            <Icon name={isVideo ? 'Video' : 'Phone'} size={11} className="text-white" />
+          </button>
+        )}
       </div>
     );
   }
