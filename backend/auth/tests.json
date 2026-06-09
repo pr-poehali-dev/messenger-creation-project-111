@@ -1,11 +1,11 @@
 {
   "tests": [
     {
-      "name": "Register new user",
+      "name": "Heartbeat without auth returns 401",
       "method": "POST",
-      "path": "/?action=register",
-      "body": {"name": "Тест Юзер", "username": "testuser_pulse_dbg2", "password": "secret123"},
-      "expectedStatus": 200,
+      "path": "/?action=heartbeat",
+      "body": {},
+      "expectedStatus": 401,
       "bodyMatcher": "partial"
     },
     {

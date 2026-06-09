@@ -161,6 +161,22 @@ def handler(event: dict, context) -> dict:
 
         user_id = user['id']
 
+        # POST ?action=heartbeat — обновить last_seen и online
+        if method == 'POST' and action == 'heartbeat':
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE {SCHEMA}.users SET online = TRUE, last_seen = NOW() WHERE id = %s",
+                    (user_id,)
+                )
+                # Помечаем офлайн всех, кто не пинговал больше 2 минут
+                cur.execute(
+                    f"UPDATE {SCHEMA}.users SET online = FALSE "
+                    f"WHERE online = TRUE AND last_seen < NOW() - INTERVAL '2 minutes' AND id != %s",
+                    (user_id,)
+                )
+            conn.commit()
+            return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
+
         # GET ?action=me
         if method == 'GET' and action == 'me':
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'user': user})}

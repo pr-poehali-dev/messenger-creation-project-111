@@ -60,6 +60,9 @@ export const api = {
   getUsers: (q?: string) =>
     request('auth', '/?action=users' + (q ? `&q=${encodeURIComponent(q)}` : ''), { method: 'GET' }),
 
+  heartbeat: () =>
+    request('auth', '/?action=heartbeat', { method: 'POST', body: '{}' }),
+
   // ---- Chats ----
   getChats: () =>
     request('chats', '/?action=chats', { method: 'GET' }),

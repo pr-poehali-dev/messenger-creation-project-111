@@ -42,7 +42,7 @@ def handler(event: dict, context) -> dict:
                 return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Не авторизован'})}
             user_id = row[0]
 
-            # Версия чатов: MAX id последнего сообщения + непрочитанные по всем чатам пользователя
+            # Версия чатов: MAX id последнего сообщения + непрочитанные + онлайн-статусы собеседников
             cur.execute(f"""
                 SELECT
                     COALESCE(MAX(m.id), 0) as last_msg_id,
@@ -52,14 +52,20 @@ def handler(event: dict, context) -> dict:
                                  SELECT 1 FROM {SCHEMA}.message_reads mr
                                  WHERE mr.message_id = m2.id AND mr.user_id = %s
                              ) THEN 1 ELSE 0 END
-                    ), 0) as unread_total
+                    ), 0) as unread_total,
+                    COALESCE(
+                        STRING_AGG(DISTINCT u.id::text || ':' || u.online::text, ',' ORDER BY u.id::text || ':' || u.online::text),
+                        ''
+                    ) as online_snapshot
                 FROM {SCHEMA}.chat_members cm
                 LEFT JOIN {SCHEMA}.messages m ON m.chat_id = cm.chat_id
                 LEFT JOIN {SCHEMA}.messages m2 ON m2.chat_id = cm.chat_id
+                JOIN {SCHEMA}.chat_members cm2 ON cm2.chat_id = cm.chat_id AND cm2.user_id != %s
+                JOIN {SCHEMA}.users u ON u.id = cm2.user_id
                 WHERE cm.user_id = %s
-            """, (user_id, user_id, user_id))
+            """, (user_id, user_id, user_id, user_id))
             chat_row = cur.fetchone()
-            chat_version = f"{chat_row[0]}:{chat_row[1]}" if chat_row else "0:0"
+            chat_version = f"{chat_row[0]}:{chat_row[1]}:{chat_row[2]}" if chat_row else "0:0:"
 
             # Версия сообщений конкретного чата (если передан chat_id)
             msg_version = None

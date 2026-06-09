@@ -12,6 +12,7 @@ import { useWebRTC } from '@/hooks/useWebRTC';
 import { useAuth } from '@/context/useAuth';
 import { useNotificationPermission, useNewMessageNotifications } from '@/hooks/useNotifications';
 import { usePushSubscription } from '@/hooks/usePushSubscription';
+import { useHeartbeat } from '@/hooks/useHeartbeat';
 import { CallEndInfo } from '@/hooks/useWebRTC';
 import { api } from '@/api/client';
 
@@ -56,6 +57,7 @@ const Index: React.FC = () => {
 
   useNewMessageNotifications(chats, activeChatId);
   usePushSubscription(user?.id ?? null);
+  useHeartbeat(user?.id ?? null);
 
   useEffect(() => {
     const handler = (e: Event) => {
