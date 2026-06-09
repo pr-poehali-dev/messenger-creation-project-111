@@ -277,11 +277,20 @@ export function useWebRTC(currentUserId: number | null) {
 
   useEffect(() => {
     if (!currentUserId) return;
-    poll();
+    // Первый запрос — просто узнаём текущий максимальный ID,
+    // не обрабатываем старые сигналы чтобы не показывать фантомные звонки
+    api.pollSignals(0).then((data) => {
+      const sigs = data.signals as { id: number }[];
+      if (sigs.length > 0) {
+        afterIdRef.current = Math.max(...sigs.map(s => s.id));
+      }
+    }).catch(() => {}).finally(() => {
+      poll();
+    });
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
-  }, [currentUserId, poll]);
+  }, [currentUserId]);
 
   return {
     status,
