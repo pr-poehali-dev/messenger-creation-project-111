@@ -263,37 +263,45 @@ export function useWebRTC(currentUserId: number | null) {
     }
   }, [cleanup]);
 
-  // Polling
-  const poll = useCallback(async () => {
-    if (!currentUserId) return;
-    try {
-      const data = await api.pollSignals(afterIdRef.current);
-      for (const sig of (data.signals as Parameters<typeof handleSignal>[0][])) {
-        await handleSignal(sig);
-      }
-    } catch { /* ignore */ }
-    pollTimerRef.current = setTimeout(poll, 2000);
-  }, [currentUserId, handleSignal]);
+  // handleSignal через ref чтобы всегда использовать актуальную версию без пересоздания poll
+  const handleSignalRef = useRef(handleSignal);
+  handleSignalRef.current = handleSignal;
 
   useEffect(() => {
     if (!currentUserId) return;
-    // Первый запрос — просто узнаём текущий максимальный ID,
-    // не обрабатываем старые сигналы чтобы не показывать фантомные звонки
+
+    let stopped = false;
+
+    const poll = async () => {
+      if (stopped) return;
+      try {
+        const data = await api.pollSignals(afterIdRef.current);
+        for (const sig of (data.signals as Parameters<typeof handleSignal>[0][])) {
+          await handleSignalRef.current(sig);
+        }
+      } catch { /* ignore */ }
+      if (!stopped) pollTimerRef.current = setTimeout(poll, 1000);
+    };
+
+    // Первый запрос — узнаём текущий максимальный ID, не обрабатываем старые сигналы
     api.pollSignals(0).then((data) => {
       const sigs = data.signals as { id: number }[];
       if (sigs.length > 0) {
         afterIdRef.current = Math.max(...sigs.map(s => s.id));
       }
     }).catch(() => {}).finally(() => {
-      poll();
+      if (!stopped) poll();
     });
+
     return () => {
+      stopped = true;
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
   }, [currentUserId]);
 
   return {
     status,
+    callType: callTypeRef.current,
     incomingCall,
     isMuted,
     isCameraOff,

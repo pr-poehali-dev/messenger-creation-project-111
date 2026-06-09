@@ -222,7 +222,7 @@ const Index: React.FC = () => {
       )}
 
       {/* Активный / исходящий звонок */}
-      <CallOverlay webrtc={webrtc} chatName={activeChat?.name} />
+      <CallOverlay webrtc={webrtc} chatName={activeChat?.name} callType={webrtc.callType} />
     </div>
   );
 };

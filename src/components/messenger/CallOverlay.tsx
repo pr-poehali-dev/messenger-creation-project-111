@@ -1,15 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 import { useWebRTC, IncomingCall } from '@/hooks/useWebRTC';
 
 interface CallOverlayProps {
   webrtc: ReturnType<typeof useWebRTC>;
   chatName?: string;
+  callType?: 'voice' | 'video';
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 
-const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
+const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callType = 'voice' }) => {
   const {
     status, isMuted, isCameraOff,
     localStream, remoteStream,
@@ -17,22 +18,30 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
   } = webrtc;
 
   const [seconds, setSeconds] = useState(0);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-  // Подключаем локальный стрим к <video> после монтирования
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
+  const remoteVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const remoteCallbackRef = useCallback((el: HTMLVideoElement | null) => {
+    remoteVideoElRef.current = el;
+    if (el && remoteStream) el.srcObject = remoteStream;
+  }, [remoteStream]);
 
-  // Подключаем удалённый стрим к <video> после монтирования
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
+    if (remoteVideoElRef.current && remoteStream) {
+      remoteVideoElRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);
+
+  const localVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const localCallbackRef = useCallback((el: HTMLVideoElement | null) => {
+    localVideoElRef.current = el;
+    if (el && localStream) el.srcObject = localStream;
+  }, [localStream]);
+
+  useEffect(() => {
+    if (localVideoElRef.current && localStream) {
+      localVideoElRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
 
   useEffect(() => {
     if (status !== 'active') { setSeconds(0); return; }
@@ -41,22 +50,28 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
   }, [status]);
 
   const duration = `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
-  const isVideo = (localStream?.getVideoTracks().length ?? 0) > 0;
+  // isVideo определяем по типу звонка, не по наличию треков (они могут появиться позже)
+  const isVideo = callType === 'video';
 
   if (status === 'idle' || status === 'ended') return null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#0a0a12' }}>
-      {/* Remote video / аватар */}
-      {isVideo ? (
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ opacity: status === 'active' ? 1 : 0.3 }}
-        />
-      ) : (
+      {/* Remote video — всегда в DOM при video-звонке, скрыт пока нет стрима */}
+      <video
+        ref={remoteCallbackRef}
+        autoPlay
+        playsInline
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{
+          display: isVideo ? 'block' : 'none',
+          opacity: (isVideo && remoteStream && status === 'active') ? 1 : 0,
+          transition: 'opacity 0.3s',
+        }}
+      />
+
+      {/* Аватар — показываем пока нет remote видео */}
+      {(!isVideo || !remoteStream || status !== 'active') && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div
             className="w-28 h-28 rounded-full flex items-center justify-center text-5xl font-black text-white"
@@ -88,7 +103,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '' }) => {
           style={{ width: 90, height: 130, border: '2px solid rgba(255,255,255,0.2)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}
         >
           <video
-            ref={localVideoRef}
+            ref={localCallbackRef}
             autoPlay
             playsInline
             muted
