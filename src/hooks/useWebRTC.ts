@@ -1,12 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { api } from '@/api/client';
 
-export type CallStatus =
-  | 'idle'
-  | 'outgoing'
-  | 'incoming'
-  | 'active'
-  | 'ended';
+export type CallStatus = 'idle' | 'outgoing' | 'incoming' | 'active' | 'ended';
 
 export interface IncomingCall {
   callId: string;
@@ -20,6 +15,7 @@ const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
 ];
 
 export function useWebRTC(currentUserId: number | null) {
@@ -27,7 +23,6 @@ export function useWebRTC(currentUserId: number | null) {
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
-  // Храним remoteStream в state чтобы триггерить ре-рендер когда он появляется
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
@@ -37,88 +32,118 @@ export function useWebRTC(currentUserId: number | null) {
   const peerUserIdRef = useRef<number>(0);
   const callTypeRef = useRef<'voice' | 'video'>('voice');
   const afterIdRef = useRef<number>(0);
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
-  // Аудио элемент для воспроизведения удалённого потока
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Создаём audio элемент один раз
+  // Очередь ICE-кандидатов до setRemoteDescription
+  const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+  const remoteDescSetRef = useRef<boolean>(false);
+
+  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
+
+  // Отдельный polling timer — НЕ трогается при cleanup звонка
+  const sigPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Аудио для голоса (не видео — там srcObject на <video>)
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
     const audio = new Audio();
     audio.autoplay = true;
-    audio.playsInline = true;
+    (audio as HTMLAudioElement & { playsInline: boolean }).playsInline = true;
     remoteAudioRef.current = audio;
-    return () => {
-      audio.srcObject = null;
-    };
+    return () => { audio.srcObject = null; };
   }, []);
 
-  // Когда появляется remoteStream — подключаем к audio
+  // Аудио воспроизведение только для голосовых звонков
   useEffect(() => {
-    if (remoteStream && remoteAudioRef.current) {
+    if (remoteStream && callTypeRef.current === 'voice' && remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = remoteStream;
       remoteAudioRef.current.play().catch(() => {});
     }
   }, [remoteStream]);
 
-  const stopStream = () => {
+  const stopStream = useCallback(() => {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     setLocalStream(null);
-  };
-
-  const closePc = useCallback(() => {
-    pcRef.current?.close();
-    pcRef.current = null;
   }, []);
 
   const cleanup = useCallback(async (callId?: string) => {
+    // Сбрасываем PCref ДО закрытия, чтобы ontrack/onicecandidate не сработали
+    const pc = pcRef.current;
+    pcRef.current = null;
+    pc?.close();
+
     stopStream();
-    closePc();
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     setRemoteStream(null);
-    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+
+    iceCandidateQueueRef.current = [];
+    remoteDescSetRef.current = false;
+
     const cid = callId || callIdRef.current;
-    if (cid) {
-      try { await api.clearSignals(cid); } catch { /* ignore */ }
-    }
     callIdRef.current = '';
     peerUserIdRef.current = 0;
     pendingOfferRef.current = null;
+
+    if (cid) {
+      try { await api.clearSignals(cid); } catch { /* ignore */ }
+    }
+
     setStatus('ended');
     setTimeout(() => setStatus('idle'), 1500);
-  }, [closePc]);
+  }, [stopStream]);
+
+  const flushIceCandidates = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    const queue = iceCandidateQueueRef.current.splice(0);
+    for (const c of queue) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore */ }
+    }
+  }, []);
 
   const createPc = useCallback(() => {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
     pc.onicecandidate = (e) => {
       if (e.candidate && peerUserIdRef.current) {
-        api.sendSignal(callIdRef.current, peerUserIdRef.current, 'ice-candidate', e.candidate.toJSON()).catch(() => {});
+        api.sendSignal(
+          callIdRef.current,
+          peerUserIdRef.current,
+          'ice-candidate',
+          e.candidate.toJSON()
+        ).catch(() => {});
       }
     };
 
     pc.ontrack = (e) => {
-      const stream = e.streams[0] || new MediaStream([e.track]);
+      const stream = e.streams[0] ?? new MediaStream([e.track]);
       setRemoteStream(stream);
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        cleanup();
-      }
+      console.log('[WebRTC] connectionState:', pc.connectionState);
+      if (pc.connectionState === 'failed') cleanup();
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log('[WebRTC] iceGatheringState:', pc.iceGatheringState);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC] iceConnectionState:', pc.iceConnectionState);
     };
 
     pcRef.current = pc;
+    remoteDescSetRef.current = false;
+    iceCandidateQueueRef.current = [];
     return pc;
   }, [cleanup]);
 
   const getMedia = async (type: 'voice' | 'video') => {
-    const constraints: MediaStreamConstraints = {
-      audio: { echoCancellation: true, noiseSuppression: true },
-      video: type === 'video' ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } : false,
-    };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: type === 'video' ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+    });
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
@@ -150,16 +175,16 @@ export function useWebRTC(currentUserId: number | null) {
         callType: type,
       });
     } catch (e) {
-      console.error('startCall error:', e);
-      setStatus('idle');
+      console.error('[WebRTC] startCall error:', e);
+      cleanup();
     }
-  }, [currentUserId, createPc]);
+  }, [currentUserId, createPc, cleanup]);
 
   // Принять входящий звонок
   const acceptCall = useCallback(async (incoming: IncomingCall) => {
     const offer = pendingOfferRef.current;
     if (!offer) {
-      console.error('acceptCall: no pending offer');
+      console.error('[WebRTC] acceptCall: no pending offer');
       return;
     }
     callIdRef.current = incoming.callId;
@@ -174,6 +199,11 @@ export function useWebRTC(currentUserId: number | null) {
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      remoteDescSetRef.current = true;
+
+      // Применяем накопленные ICE кандидаты
+      await flushIceCandidates();
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -183,10 +213,10 @@ export function useWebRTC(currentUserId: number | null) {
       });
       pendingOfferRef.current = null;
     } catch (e) {
-      console.error('acceptCall error:', e);
+      console.error('[WebRTC] acceptCall error:', e);
       cleanup();
     }
-  }, [createPc, cleanup]);
+  }, [createPc, cleanup, flushIceCandidates]);
 
   const hangUp = useCallback(async () => {
     if (peerUserIdRef.current) {
@@ -211,7 +241,7 @@ export function useWebRTC(currentUserId: number | null) {
     setIsCameraOff(prev => !prev);
   }, []);
 
-  // Обработка входящих сигналов
+  // Обработка сигналов
   const handleSignal = useCallback(async (sig: {
     id: number; call_id: string; from_user_id: number; type: string; payload: unknown;
   }) => {
@@ -230,62 +260,77 @@ export function useWebRTC(currentUserId: number | null) {
     }
 
     if (sig.type === 'offer') {
-      const p = sig.payload as { sdp: string; type: string; callType?: string; fromName?: string };
+      const p = sig.payload as { sdp: string; type: string; callType?: string };
       pendingOfferRef.current = { sdp: p.sdp, type: p.type as RTCSdpType };
-      setIncomingCall(prev => prev ? { ...prev } : {
+      setIncomingCall(prev => prev ? { ...prev, type: (p.callType as 'voice' | 'video') || 'voice' } : {
         callId: sig.call_id,
         fromUserId: sig.from_user_id,
-        fromName: p.fromName || 'Пользователь',
+        fromName: 'Пользователь',
         fromAvatar: '1',
         type: (p.callType as 'voice' | 'video') || 'voice',
       });
       return;
     }
 
-    if (sig.type === 'answer' && pcRef.current) {
+    if (sig.type === 'answer') {
+      const pc = pcRef.current;
+      if (!pc) return;
       const p = sig.payload as RTCSessionDescriptionInit;
-      await pcRef.current.setRemoteDescription(new RTCSessionDescription(p));
-      setStatus('active');
-      return;
-    }
-
-    if (sig.type === 'ice-candidate' && pcRef.current) {
       try {
-        await pcRef.current.addIceCandidate(new RTCIceCandidate(sig.payload as RTCIceCandidateInit));
-      } catch { /* ignore */ }
+        await pc.setRemoteDescription(new RTCSessionDescription(p));
+        remoteDescSetRef.current = true;
+        // Применяем накопленные кандидаты
+        await flushIceCandidates();
+        setStatus('active');
+      } catch (e) {
+        console.error('[WebRTC] setRemoteDescription(answer) error:', e);
+      }
       return;
     }
 
-    if (sig.type === 'hang-up' || sig.type === 'reject') {
+    if (sig.type === 'ice-candidate') {
+      const candidate = sig.payload as RTCIceCandidateInit;
+      if (remoteDescSetRef.current && pcRef.current) {
+        // Remote description уже установлен — применяем сразу
+        try {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch { /* ignore */ }
+      } else {
+        // Кладём в очередь — применим после setRemoteDescription
+        iceCandidateQueueRef.current.push(candidate);
+      }
+      return;
+    }
+
+    if (sig.type === 'reject' || sig.type === 'hang-up') {
       setIncomingCall(null);
       cleanup(sig.call_id);
-      return;
     }
-  }, [cleanup]);
+  }, [cleanup, flushIceCandidates]);
 
-  // handleSignal через ref чтобы всегда использовать актуальную версию без пересоздания poll
+  // Polling сигналов — живёт независимо от звонка
   const handleSignalRef = useRef(handleSignal);
   handleSignalRef.current = handleSignal;
 
   useEffect(() => {
     if (!currentUserId) return;
-
     let stopped = false;
 
     const poll = async () => {
       if (stopped) return;
       try {
         const data = await api.pollSignals(afterIdRef.current);
-        for (const sig of (data.signals as Parameters<typeof handleSignal>[0][])) {
+        const signals = (data.signals ?? []) as Parameters<typeof handleSignal>[0][];
+        for (const sig of signals) {
           await handleSignalRef.current(sig);
         }
       } catch { /* ignore */ }
-      if (!stopped) pollTimerRef.current = setTimeout(poll, 1000);
+      if (!stopped) sigPollTimerRef.current = setTimeout(poll, 1000);
     };
 
-    // Первый запрос — узнаём текущий максимальный ID, не обрабатываем старые сигналы
+    // Первый запрос — получаем текущий max id, не обрабатываем старые сигналы
     api.pollSignals(0).then((data) => {
-      const sigs = data.signals as { id: number }[];
+      const sigs = (data.signals ?? []) as { id: number }[];
       if (sigs.length > 0) {
         afterIdRef.current = Math.max(...sigs.map(s => s.id));
       }
@@ -295,7 +340,7 @@ export function useWebRTC(currentUserId: number | null) {
 
     return () => {
       stopped = true;
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      if (sigPollTimerRef.current) clearTimeout(sigPollTimerRef.current);
     };
   }, [currentUserId]);
 
@@ -313,6 +358,5 @@ export function useWebRTC(currentUserId: number | null) {
     rejectCall,
     toggleMute,
     toggleCamera,
-    _pendingOffer: pendingOfferRef,
   };
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useWebRTC, IncomingCall } from '@/hooks/useWebRTC';
 
@@ -18,30 +18,22 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callTy
   } = webrtc;
 
   const [seconds, setSeconds] = useState(0);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-  const remoteVideoElRef = useRef<HTMLVideoElement | null>(null);
-  const remoteCallbackRef = useCallback((el: HTMLVideoElement | null) => {
-    remoteVideoElRef.current = el;
-    if (el && remoteStream) el.srcObject = remoteStream;
-  }, [remoteStream]);
-
+  // Подключаем localStream к <video> — и при монтировании, и при смене стрима
   useEffect(() => {
-    if (remoteVideoElRef.current && remoteStream) {
-      remoteVideoElRef.current.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
+    const el = localVideoRef.current;
+    if (!el || !localStream) return;
+    if (el.srcObject !== localStream) el.srcObject = localStream;
+  });
 
-  const localVideoElRef = useRef<HTMLVideoElement | null>(null);
-  const localCallbackRef = useCallback((el: HTMLVideoElement | null) => {
-    localVideoElRef.current = el;
-    if (el && localStream) el.srcObject = localStream;
-  }, [localStream]);
-
+  // Подключаем remoteStream к <video> — и при монтировании, и при смене стрима
   useEffect(() => {
-    if (localVideoElRef.current && localStream) {
-      localVideoElRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
+    const el = remoteVideoRef.current;
+    if (!el || !remoteStream) return;
+    if (el.srcObject !== remoteStream) el.srcObject = remoteStream;
+  });
 
   useEffect(() => {
     if (status !== 'active') { setSeconds(0); return; }
@@ -50,41 +42,42 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callTy
   }, [status]);
 
   const duration = `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
-  // isVideo определяем по типу звонка, не по наличию треков (они могут появиться позже)
   const isVideo = callType === 'video';
 
   if (status === 'idle' || status === 'ended') return null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#0a0a12' }}>
-      {/* Remote video — всегда в DOM при video-звонке, скрыт пока нет стрима */}
+
+      {/* Remote видео — всегда в DOM при видеозвонке */}
       <video
-        ref={remoteCallbackRef}
+        ref={remoteVideoRef}
         autoPlay
         playsInline
         className="absolute inset-0 w-full h-full object-cover"
         style={{
           display: isVideo ? 'block' : 'none',
-          opacity: (isVideo && remoteStream && status === 'active') ? 1 : 0,
-          transition: 'opacity 0.3s',
+          opacity: remoteStream ? 1 : 0,
+          transition: 'opacity 0.4s',
         }}
       />
 
-      {/* Аватар — показываем пока нет remote видео */}
-      {(!isVideo || !remoteStream || status !== 'active') && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div
-            className="w-28 h-28 rounded-full flex items-center justify-center text-5xl font-black text-white"
-            style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
-          >
-            {chatName.charAt(0).toUpperCase()}
-          </div>
+      {/* Аватар — поверх видео пока нет remote стрима, или при голосовом */}
+      <div
+        className="absolute inset-0 flex items-center justify-center transition-opacity duration-300"
+        style={{ opacity: isVideo && remoteStream ? 0 : 1, pointerEvents: 'none' }}
+      >
+        <div
+          className="w-28 h-28 rounded-full flex items-center justify-center text-5xl font-black text-white"
+          style={{ background: 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' }}
+        >
+          {chatName.charAt(0).toUpperCase()}
         </div>
-      )}
+      </div>
 
       {/* Затемнение */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 pointer-events-none"
         style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 35%, transparent 55%, rgba(0,0,0,0.75) 100%)' }}
       />
 
@@ -103,7 +96,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callTy
           style={{ width: 90, height: 130, border: '2px solid rgba(255,255,255,0.2)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}
         >
           <video
-            ref={localCallbackRef}
+            ref={localVideoRef}
             autoPlay
             playsInline
             muted
@@ -118,7 +111,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callTy
         </div>
       )}
 
-      {/* Кнопки */}
+      {/* Кнопки управления */}
       <div className="absolute bottom-0 left-0 right-0 z-10 px-6 pb-12">
         <div className="flex items-center justify-center gap-5">
           <CallBtn icon={isMuted ? 'MicOff' : 'Mic'} label={isMuted ? 'Включить' : 'Микрофон'} active={isMuted} onClick={toggleMute} />
@@ -141,14 +134,11 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ webrtc, chatName = '', callTy
   );
 };
 
-// Экран входящего звонка
-interface IncomingCallScreenProps {
+export const IncomingCallScreen: React.FC<{
   incoming: IncomingCall;
   onAccept: () => void;
   onReject: () => void;
-}
-
-export const IncomingCallScreen: React.FC<IncomingCallScreenProps> = ({ incoming, onAccept, onReject }) => (
+}> = ({ incoming, onAccept, onReject }) => (
   <div
     className="fixed inset-0 z-50 flex flex-col items-center justify-between py-16 px-6"
     style={{ background: 'linear-gradient(160deg, #1a0533 0%, #0a0a12 100%)' }}
