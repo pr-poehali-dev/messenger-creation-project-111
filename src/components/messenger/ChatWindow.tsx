@@ -522,6 +522,31 @@ const MessageBubble: React.FC<{ msg: ApiMessage; isMe: boolean }> = ({ msg, isMe
     );
   }
 
+  if (msg.type === 'call') {
+    const isVideo = msg.text?.includes('📹') || msg.text?.includes('идео');
+    const isMissed = msg.text?.includes('Пропущенный') || msg.text?.includes('не состоялся');
+    return (
+      <div
+        className={`flex items-center gap-2.5 px-3 py-2 ${bubbleClass}`}
+        style={{ minWidth: 180 }}
+      >
+        <div
+          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
+          style={{ background: isMissed ? 'rgba(239,68,68,0.25)' : isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-4)' }}
+        >
+          <Icon
+            name={isVideo ? 'Video' : 'Phone'}
+            size={13}
+            style={{ color: isMissed ? '#f87171' : 'white' }}
+          />
+        </div>
+        <span className="text-sm" style={{ color: isMissed ? (isMe ? '#fca5a5' : '#f87171') : 'white' }}>
+          {msg.text}
+        </span>
+      </div>
+    );
+  }
+
   if (msg.type === 'voice' && msg.fileUrl) {
     return (
       <div className={`flex items-center gap-3 px-3 py-2.5 ${bubbleClass}`} style={{ minWidth: 200, maxWidth: 280 }}>

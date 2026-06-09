@@ -18,7 +18,16 @@ const ICE_SERVERS = [
   { urls: 'stun:stun.cloudflare.com:3478' },
 ];
 
-export function useWebRTC(currentUserId: number | null) {
+export interface CallEndInfo {
+  type: 'voice' | 'video';
+  duration: number; // секунды, 0 если не был принят
+  missed: boolean;
+}
+
+export function useWebRTC(
+  currentUserId: number | null,
+  onCallEnd?: (info: CallEndInfo) => void,
+) {
   const [status, setStatus] = useState<CallStatus>('idle');
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -32,6 +41,9 @@ export function useWebRTC(currentUserId: number | null) {
   const peerUserIdRef = useRef<number>(0);
   const callTypeRef = useRef<'voice' | 'video'>('voice');
   const afterIdRef = useRef<number>(0);
+  const callStartTimeRef = useRef<number>(0); // unix ms когда стало active
+  const onCallEndRef = useRef(onCallEnd);
+  onCallEndRef.current = onCallEnd;
 
   // Очередь ICE-кандидатов до setRemoteDescription
   const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
@@ -66,7 +78,7 @@ export function useWebRTC(currentUserId: number | null) {
     setLocalStream(null);
   }, []);
 
-  const cleanup = useCallback(async (callId?: string) => {
+  const cleanup = useCallback(async (callId?: string, missed = false) => {
     // Сбрасываем PCref ДО закрытия, чтобы ontrack/onicecandidate не сработали
     const pc = pcRef.current;
     pcRef.current = null;
@@ -80,6 +92,12 @@ export function useWebRTC(currentUserId: number | null) {
     remoteDescSetRef.current = false;
 
     const cid = callId || callIdRef.current;
+    const endedType = callTypeRef.current;
+    const duration = callStartTimeRef.current
+      ? Math.round((Date.now() - callStartTimeRef.current) / 1000)
+      : 0;
+    callStartTimeRef.current = 0;
+
     callIdRef.current = '';
     peerUserIdRef.current = 0;
     pendingOfferRef.current = null;
@@ -87,6 +105,9 @@ export function useWebRTC(currentUserId: number | null) {
     if (cid) {
       try { await api.clearSignals(cid); } catch { /* ignore */ }
     }
+
+    // Уведомляем о завершении звонка
+    onCallEndRef.current?.({ type: endedType, duration, missed });
 
     setStatus('ended');
     setTimeout(() => setStatus('idle'), 1500);
@@ -212,6 +233,7 @@ export function useWebRTC(currentUserId: number | null) {
         type: answer.type,
       });
       pendingOfferRef.current = null;
+      callStartTimeRef.current = Date.now();
     } catch (e) {
       console.error('[WebRTC] acceptCall error:', e);
       cleanup();
@@ -279,6 +301,7 @@ export function useWebRTC(currentUserId: number | null) {
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(p));
         remoteDescSetRef.current = true;
+        callStartTimeRef.current = Date.now();
         // Применяем накопленные кандидаты
         await flushIceCandidates();
         setStatus('active');
@@ -302,9 +325,14 @@ export function useWebRTC(currentUserId: number | null) {
       return;
     }
 
-    if (sig.type === 'reject' || sig.type === 'hang-up') {
+    if (sig.type === 'reject') {
       setIncomingCall(null);
-      cleanup(sig.call_id);
+      cleanup(sig.call_id, true); // пропущенный
+    }
+
+    if (sig.type === 'hang-up') {
+      setIncomingCall(null);
+      cleanup(sig.call_id, false);
     }
   }, [cleanup, flushIceCandidates]);
 

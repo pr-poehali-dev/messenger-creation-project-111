@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from '@/components/messenger/Sidebar';
 import ChatList from '@/components/messenger/ChatList';
 import ChatWindow from '@/components/messenger/ChatWindow';
@@ -12,6 +12,8 @@ import { useWebRTC } from '@/hooks/useWebRTC';
 import { useAuth } from '@/context/useAuth';
 import { useNotificationPermission, useNewMessageNotifications } from '@/hooks/useNotifications';
 import { usePushSubscription } from '@/hooks/usePushSubscription';
+import { CallEndInfo } from '@/hooks/useWebRTC';
+import { api } from '@/api/client';
 
 type Tab = 'chats' | 'contacts' | 'profile';
 
@@ -27,7 +29,30 @@ const Index: React.FC = () => {
   const { permission, request: requestPermission } = useNotificationPermission();
   const { user } = useAuth();
 
-  const webrtc = useWebRTC(user?.id ?? null);
+  const activeChatIdRef = useRef<number | null>(null);
+
+  const handleCallEnd = useCallback(async (info: CallEndInfo) => {
+    const chatId = activeChatIdRef.current;
+    if (!chatId) return;
+    const icon = info.type === 'video' ? '📹' : '📞';
+    let text: string;
+    if (info.missed) {
+      text = `${icon} Пропущенный ${info.type === 'video' ? 'видеозвонок' : 'звонок'}`;
+    } else if (info.duration === 0) {
+      text = `${icon} ${info.type === 'video' ? 'Видеозвонок' : 'Звонок'} не состоялся`;
+    } else {
+      const m = Math.floor(info.duration / 60);
+      const s = info.duration % 60;
+      const dur = m > 0 ? `${m} мин ${s} сек` : `${s} сек`;
+      text = `${icon} ${info.type === 'video' ? 'Видеозвонок' : 'Звонок'} · ${dur}`;
+    }
+    try {
+      await api.sendMessage(chatId, text, 'call');
+      refetchChats();
+    } catch { /* ignore */ }
+  }, [refetchChats]);
+
+  const webrtc = useWebRTC(user?.id ?? null, handleCallEnd);
 
   useNewMessageNotifications(chats, activeChatId);
   usePushSubscription(user?.id ?? null);
@@ -73,8 +98,14 @@ const Index: React.FC = () => {
 
   const totalUnread = chats.reduce((sum, c) => sum + c.unread, 0);
 
-  const handleSelectChat = (id: number) => setActiveChatId(id);
-  const handleBackToList = () => setActiveChatId(null);
+  const handleSelectChat = (id: number) => {
+    setActiveChatId(id);
+    activeChatIdRef.current = id;
+  };
+  const handleBackToList = () => {
+    setActiveChatId(null);
+    activeChatIdRef.current = null;
+  };
 
   const isChatOpen = activeTab === 'chats' && activeChatId !== null;
 

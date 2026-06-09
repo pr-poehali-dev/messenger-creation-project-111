@@ -80,10 +80,10 @@ export const api = {
   getMessages: (chatId: number, limit = 50, offset = 0) =>
     request('chats', `/?action=messages&chat_id=${chatId}&limit=${limit}&offset=${offset}`, { method: 'GET' }),
 
-  sendMessage: (chatId: number, text: string) =>
+  sendMessage: (chatId: number, text: string, type = 'text') =>
     request('chats', '/?action=messages', {
       method: 'POST',
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify({ chat_id: chatId, text, type }),
     }),
 
   markRead: (chatId: number) =>
