@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useMessages, ApiChat } from '@/hooks/useChats';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { api } from '@/api/client';
@@ -16,13 +16,30 @@ interface ChatWindowProps {
 const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack }) => {
   const { messages, sendMessage, sendFileMessage } = useMessages(chatId);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockedByOther, setBlockedByOther] = useState(false);
 
   const chatName = chat?.name || '...';
   const chatAvatar = chat?.avatar || '1';
   const chatType = chat?.type || 'direct';
+  const otherUserId = chat?.otherUserId;
+
+  const loadRelation = useCallback(async () => {
+    if (!otherUserId) return;
+    try {
+      const data = await api.getUserRelation(otherUserId);
+      setIsBlocked(!!data.is_blocked);
+      setBlockedByOther(!!data.is_blocked_by_other);
+    } catch { /* ignore */ }
+  }, [otherUserId]);
+
+  useEffect(() => {
+    setIsBlocked(false);
+    setBlockedByOther(false);
+    loadRelation();
+  }, [loadRelation]);
 
   const handleCall = async (type: 'voice' | 'video') => {
-    const otherUserId = chat?.otherUserId;
     if (!otherUserId) return;
     const callId = `${chatId}-${Date.now()}`;
     await api.sendSignal(callId, otherUserId, 'ring', {
@@ -57,7 +74,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
       onDragOver={e => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <ChatHeader chat={chat} onBack={onBack} onCall={handleCall} />
+      <ChatHeader
+        chat={chat}
+        onBack={onBack}
+        onCall={handleCall}
+        onRelationChange={loadRelation}
+      />
       <MessageList
         messages={messages}
         chatId={chatId}
@@ -69,6 +91,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
         onSendFile={handleSendFile}
         externalFile={droppedFile}
         onExternalFileHandled={() => setDroppedFile(null)}
+        isBlocked={isBlocked}
+        isBlockedByOther={blockedByOther}
       />
     </div>
   );

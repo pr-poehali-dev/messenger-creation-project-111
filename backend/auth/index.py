@@ -309,6 +309,11 @@ def handler(event: dict, context) -> dict:
                     (user_id, target_id)
                 )
                 is_blocked = bool(cur.fetchone())
+                cur.execute(
+                    f"SELECT 1 FROM {SCHEMA}.blocked_users WHERE blocker_id = %s AND blocked_id = %s",
+                    (target_id, user_id)
+                )
+                is_blocked_by_other = bool(cur.fetchone())
             uid, uname, uusername, ubio, uphone, uavatar, uonline, ulast = urow
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({
                 'user': {
@@ -319,6 +324,7 @@ def handler(event: dict, context) -> dict:
                 },
                 'is_contact': is_contact,
                 'is_blocked': is_blocked,
+                'is_blocked_by_other': is_blocked_by_other,
             })}
 
         # POST ?action=block — заблокировать

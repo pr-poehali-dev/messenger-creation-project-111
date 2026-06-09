@@ -47,9 +47,11 @@ interface MessageInputProps {
   onSendFile: (url: string, name: string, isImage: boolean, type?: string) => Promise<void>;
   externalFile?: File | null;
   onExternalFileHandled?: () => void;
+  isBlocked?: boolean;
+  isBlockedByOther?: boolean;
 }
 
-const MessageInput: React.FC<MessageInputProps> = ({ onSendText, onSendFile, externalFile, onExternalFileHandled }) => {
+const MessageInput: React.FC<MessageInputProps> = ({ onSendText, onSendFile, externalFile, onExternalFileHandled, isBlocked, isBlockedByOther }) => {
   const voice = useVoiceRecorder();
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
@@ -149,6 +151,31 @@ const MessageInput: React.FC<MessageInputProps> = ({ onSendText, onSendFile, ext
   };
 
   const canSend = (!!text.trim() || !!filePreview) && !uploading;
+
+  if (isBlocked || isBlockedByOther) {
+    return (
+      <div
+        className="flex-shrink-0 flex items-center justify-center gap-3 px-5 py-4"
+        style={{
+          background: 'var(--surface-2)',
+          borderTop: '1px solid var(--glass-border)',
+          paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)',
+        }}
+      >
+        <div
+          className="flex items-center gap-3 px-5 py-3 rounded-2xl w-full max-w-md"
+          style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)' }}
+        >
+          <Icon name="Ban" size={18} style={{ color: '#f87171', flexShrink: 0 }} />
+          <p className="text-sm" style={{ color: '#f87171' }}>
+            {isBlocked
+              ? 'Вы заблокировали этого пользователя. Разблокируйте, чтобы писать.'
+              : 'Вы не можете отправлять сообщения этому пользователю.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

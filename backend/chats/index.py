@@ -232,6 +232,27 @@ def handler(event: dict, context) -> dict:
             if not is_member(chat_id, user_id, conn):
                 return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Нет доступа'})}
 
+            # Проверка блокировки в direct-чате
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT other.id FROM {SCHEMA}.chat_members cm "
+                    f"JOIN {SCHEMA}.chats c ON c.id = cm.chat_id "
+                    f"JOIN {SCHEMA}.chat_members cm2 ON cm2.chat_id = cm.chat_id AND cm2.user_id != %s "
+                    f"JOIN {SCHEMA}.users other ON other.id = cm2.user_id "
+                    f"WHERE cm.chat_id = %s AND cm.user_id = %s AND c.type = 'direct'",
+                    (user_id, chat_id, user_id)
+                )
+                other_row = cur.fetchone()
+                if other_row:
+                    other_id = other_row[0]
+                    cur.execute(
+                        f"SELECT 1 FROM {SCHEMA}.blocked_users "
+                        f"WHERE (blocker_id = %s AND blocked_id = %s) OR (blocker_id = %s AND blocked_id = %s)",
+                        (user_id, other_id, other_id, user_id)
+                    )
+                    if cur.fetchone():
+                        return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'blocked'})}
+
             stored_text = text if text else (file_name or 'Файл')
 
             with conn.cursor() as cur:

@@ -10,6 +10,7 @@ interface ChatHeaderProps {
   chat?: ApiChat;
   onBack?: () => void;
   onCall: (type: 'voice' | 'video') => void;
+  onRelationChange?: () => void;
 }
 
 const HeaderBtn: React.FC<{ onClick: () => void; icon: string; tooltip: string }> = ({ onClick, icon, tooltip }) => (
@@ -25,7 +26,7 @@ const HeaderBtn: React.FC<{ onClick: () => void; icon: string; tooltip: string }
   </button>
 );
 
-const ChatHeader: React.FC<ChatHeaderProps> = ({ chat, onBack, onCall }) => {
+const ChatHeader: React.FC<ChatHeaderProps> = ({ chat, onBack, onCall, onRelationChange }) => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -137,6 +138,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ chat, onBack, onCall }) => {
           open={profileOpen}
           onClose={() => setProfileOpen(false)}
           onWriteMessage={handleWriteMessage}
+          onRelationChange={onRelationChange}
         />
       )}
     </>
