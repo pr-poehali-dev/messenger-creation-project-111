@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Generate VAPID keys",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"vapid_public_key": "string", "vapid_private_key": "string"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

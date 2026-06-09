@@ -11,6 +11,7 @@ import { useChats } from '@/hooks/useChats';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { useAuth } from '@/context/useAuth';
 import { useNotificationPermission, useNewMessageNotifications } from '@/hooks/useNotifications';
+import { usePushSubscription } from '@/hooks/usePushSubscription';
 
 type Tab = 'chats' | 'contacts' | 'profile';
 
@@ -29,6 +30,7 @@ const Index: React.FC = () => {
   const webrtc = useWebRTC(user?.id ?? null);
 
   useNewMessageNotifications(chats, activeChatId);
+  usePushSubscription(user?.id ?? null);
 
   useEffect(() => {
     const handler = (e: Event) => {

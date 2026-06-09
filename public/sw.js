@@ -1,4 +1,4 @@
-const CACHE = 'pulse-v2';
+const CACHE = 'pulse-v3';
 const STATIC = [
   '/',
   '/pwa-icon.svg',
@@ -63,5 +63,38 @@ self.addEventListener('fetch', e => {
           cached || caches.match('/')
         )
       )
+  );
+});
+
+// Push-уведомления
+self.addEventListener('push', e => {
+  let data = { title: 'PULSE', body: 'Новое сообщение', data: {} };
+  try { data = e.data.json(); } catch {}
+
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/pwa-icon-192.png',
+      badge: '/pwa-icon-192.png',
+      vibrate: [200, 100, 200],
+      tag: 'pulse-message',
+      renotify: true,
+      data: data.data || {},
+    })
+  );
+});
+
+// Клик по уведомлению — открываем/фокусируем приложение
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      for (const client of list) {
+        if (client.url.includes(self.location.origin)) {
+          return client.focus();
+        }
+      }
+      return clients.openWindow('/');
+    })
   );
 });

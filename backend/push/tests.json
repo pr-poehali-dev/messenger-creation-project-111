@@ -1,0 +1,27 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get VAPID public key",
+      "method": "GET",
+      "path": "/?action=vapid-key",
+      "expectedStatus": 200,
+      "expectedBody": {"vapid_public_key": "string"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Subscribe without auth",
+      "method": "POST",
+      "path": "/?action=subscribe",
+      "body": {"endpoint": "https://example.com", "keys": {"p256dh": "x", "auth": "y"}},
+      "expectedStatus": 401,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

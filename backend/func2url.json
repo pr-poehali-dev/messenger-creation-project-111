@@ -1,4 +1,6 @@
 {
+  "push": "https://functions.poehali.dev/96f518a6-4708-420f-8e4a-034fdc024ead",
+  "vapid-gen": "https://functions.poehali.dev/52067b83-9831-4214-9eda-d2d679e9fe31",
   "signal": "https://functions.poehali.dev/fea04015-cf4e-4b0a-a39d-52641f674f9d",
   "upload": "https://functions.poehali.dev/a9c74801-66be-4f54-90be-9eab93b57c18",
   "auth": "https://functions.poehali.dev/2af8a493-4b0f-4728-9b44-595ad8d4e50f",

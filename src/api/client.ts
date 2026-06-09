@@ -3,6 +3,7 @@ const URLS = {
   chats: 'https://functions.poehali.dev/95f220d4-6f2d-4a0c-94b0-d5b3b286afd3',
   upload: 'https://functions.poehali.dev/a9c74801-66be-4f54-90be-9eab93b57c18',
   signal: 'https://functions.poehali.dev/fea04015-cf4e-4b0a-a39d-52641f674f9d',
+  push: 'https://functions.poehali.dev/96f518a6-4708-420f-8e4a-034fdc024ead',
 };
 
 function getSessionId(): string {
@@ -116,5 +117,15 @@ export const api = {
     request('signal', '/?action=clear', {
       method: 'POST',
       body: JSON.stringify({ call_id: callId }),
+    }),
+
+  // ---- Push ----
+  getPushVapidKey: () =>
+    request('push', '/?action=vapid-key', { method: 'GET' }),
+
+  subscribePush: (subscription: PushSubscriptionJSON) =>
+    request('push', '/?action=subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
     }),
 };

@@ -9,6 +9,7 @@ POST ?action=read                         — пометить прочитан�
 import json
 import os
 import psycopg2
+import urllib.request
 
 SCHEMA = os.environ.get('MAIN_DB_SCHEMA', 't_p31400750_messenger_creation_p')
 CORS = {
@@ -246,7 +247,36 @@ def handler(event: dict, context) -> dict:
                 )
                 cur.execute(f"SELECT name, avatar_seed FROM {SCHEMA}.users WHERE id = %s", (user_id,))
                 urow = cur.fetchone()
+                # Получаем всех участников чата кроме отправителя для push
+                cur.execute(
+                    f"SELECT user_id FROM {SCHEMA}.chat_members WHERE chat_id = %s AND user_id != %s",
+                    (chat_id, user_id)
+                )
+                recipient_ids = [r[0] for r in cur.fetchall()]
             conn.commit()
+
+            # Отправляем push-уведомления получателям (не ждём ответа)
+            sender_name = urow[0] if urow else 'Кто-то'
+            push_body = text if text else ('🎵 Голосовое' if msg_type == 'voice' else '📎 Файл')
+            push_url = os.environ.get('PUSH_FUNCTION_URL', '')
+            if push_url and recipient_ids:
+                for rid in recipient_ids:
+                    try:
+                        push_payload = json.dumps({
+                            'user_id': rid,
+                            'title': sender_name,
+                            'body': push_body,
+                            'data': {'chat_id': chat_id},
+                        }).encode()
+                        req = urllib.request.Request(
+                            push_url + '?action=send',
+                            data=push_payload,
+                            headers={'Content-Type': 'application/json'},
+                            method='POST'
+                        )
+                        urllib.request.urlopen(req, timeout=5)
+                    except Exception:
+                        pass
 
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({
                 'message': {
