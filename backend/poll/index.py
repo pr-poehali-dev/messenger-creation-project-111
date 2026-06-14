@@ -65,7 +65,16 @@ def handler(event: dict, context) -> dict:
                 WHERE cm.user_id = %s
             """, (user_id, user_id, user_id, user_id))
             chat_row = cur.fetchone()
-            chat_version = f"{chat_row[0]}:{chat_row[1]}:{chat_row[2]}" if chat_row else "0:0:"
+            online_snapshot = chat_row[2] if chat_row else ''
+            chat_version = f"{chat_row[0]}:{chat_row[1]}:{online_snapshot}" if chat_row else "0:0:"
+
+            # Парсим online_map: {"user_id": bool, ...}
+            online_map = {}
+            if online_snapshot:
+                for pair in online_snapshot.split(','):
+                    if ':' in pair:
+                        uid_str, status = pair.split(':', 1)
+                        online_map[int(uid_str)] = (status == 'true')
 
             # Версия сообщений конкретного чата (если передан chat_id)
             msg_version = None
@@ -83,6 +92,7 @@ def handler(event: dict, context) -> dict:
             'body': json.dumps({
                 'chat_version': chat_version,
                 'msg_version': msg_version,
+                'online_map': online_map,
             })
         }
     finally:

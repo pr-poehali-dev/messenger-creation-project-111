@@ -30,7 +30,8 @@ export interface ApiMessage {
 
 // Глобальный polling — один на всё приложение
 // Подписчики регистрируются через useEffect и получают уведомления об изменениях
-type Listener = (chatVersion: string, msgVersion: string | null) => void;
+export type OnlineMap = Record<number, boolean>;
+type Listener = (chatVersion: string, msgVersion: string | null, onlineMap: OnlineMap | null) => void;
 
 class PollingManager {
   private listeners = new Map<string, Listener>();
@@ -38,6 +39,7 @@ class PollingManager {
   private chatId: number | null = null;
   private lastChatVersion = '';
   private lastMsgVersion = '';
+  private lastOnlineSnapshot = '';
   private running = false;
 
   setActiveChatId(id: number | null) {
@@ -72,17 +74,24 @@ class PollingManager {
         const data = await api.checkUpdates(this.chatId ?? undefined) as {
           chat_version: string;
           msg_version: string | null;
+          online_map?: OnlineMap;
         };
 
         const chatChanged = data.chat_version !== this.lastChatVersion;
         const msgChanged = data.msg_version !== null && data.msg_version !== this.lastMsgVersion;
+        const newOnlineSnapshot = data.chat_version.split(':')[2] ?? '';
+        const onlineChanged = newOnlineSnapshot !== this.lastOnlineSnapshot;
 
-        if (chatChanged || msgChanged) {
-          if (chatChanged) this.lastChatVersion = data.chat_version;
-          if (msgChanged) this.lastMsgVersion = data.msg_version!;
+        if (chatChanged) this.lastChatVersion = data.chat_version;
+        if (msgChanged) this.lastMsgVersion = data.msg_version!;
+        if (onlineChanged) this.lastOnlineSnapshot = newOnlineSnapshot;
+
+        if (chatChanged || msgChanged || onlineChanged) {
+          const onlineMap = (onlineChanged && data.online_map) ? data.online_map : null;
           this.listeners.forEach(fn => fn(
             chatChanged ? data.chat_version : '',
             msgChanged ? data.msg_version : null,
+            onlineMap,
           ));
         }
       }
@@ -115,9 +124,17 @@ export function useChats() {
     // Первая загрузка
     fetchChats();
 
-    // Подписываемся на polling — грузим чаты только при изменении chat_version
-    polling.subscribe('chats', (chatVersion) => {
-      if (chatVersion) fetchChats();
+    // Подписываемся на polling — грузим чаты при изменении, онлайн патчим без перезагрузки
+    polling.subscribe('chats', (chatVersion, _msgVersion, onlineMap) => {
+      if (chatVersion) {
+        fetchChats();
+      } else if (onlineMap) {
+        setChats(prev => prev.map(c =>
+          c.otherUserId !== undefined && c.otherUserId in onlineMap
+            ? { ...c, online: onlineMap[c.otherUserId] }
+            : c
+        ));
+      }
     });
 
     return () => polling.unsubscribe('chats');
@@ -156,7 +173,7 @@ export function useMessages(chatId: number | null) {
     fetchMessages();
 
     // Подписываемся — грузим сообщения только при изменении msg_version
-    polling.subscribe('messages', (_, msgVersion) => {
+    polling.subscribe('messages', (_cv, msgVersion) => {
       if (msgVersion) fetchMessages();
     });
 
