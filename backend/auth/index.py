@@ -205,16 +205,19 @@ def handler(event: dict, context) -> dict:
                        'phone': row[4], 'avatar_seed': row[5], 'online': row[6], 'email': row[7]}
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'user': updated})}
 
-        # GET ?action=users&q=username — поиск только по точному username (для добавления)
+        # GET ?action=users&q=username — поиск по username и имени
         if method == 'GET' and action == 'users':
             q = params.get('q', '').strip().lstrip('@').lower()
             if not q:
                 return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'users': []})}
+            like_q = '%' + q + '%'
             with conn.cursor() as cur:
                 cur.execute(
                     f"SELECT id, name, username, bio, phone, avatar_seed, online, last_seen "
-                    f"FROM {SCHEMA}.users WHERE id != %s AND LOWER(username) = %s LIMIT 1",
-                    (user_id, q)
+                    f"FROM {SCHEMA}.users WHERE id != %s AND ("
+                    f"  LOWER(username) = %s OR LOWER(username) LIKE %s OR LOWER(name) LIKE %s"
+                    f") ORDER BY (LOWER(username) = %s) DESC, online DESC LIMIT 20",
+                    (user_id, q, like_q, like_q, q)
                 )
                 rows = cur.fetchall()
             users_list = []
