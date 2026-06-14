@@ -2,49 +2,48 @@ import { useEffect, useRef } from 'react';
 import { api } from '@/api/client';
 
 export function usePushSubscription(userId: number | null) {
-  const doneRef = useRef(false);
+  const subscribedRef = useRef(false);
 
   useEffect(() => {
-    if (!userId || doneRef.current) return;
+    if (!userId) return;
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    if (Notification.permission !== 'granted') return;
 
-    doneRef.current = true;
+    const trySubscribe = async () => {
+      if (Notification.permission !== 'granted') return;
+      if (subscribedRef.current) return;
 
-    (async () => {
       try {
         const reg = await navigator.serviceWorker.ready;
 
-        // Получаем публичный VAPID ключ
         const { vapid_public_key } = await api.getPushVapidKey() as { vapid_public_key: string };
 
-        // Конвертируем base64url → Uint8Array
-        const key = vapid_public_key.replace(/-/g, '+').replace(/_/g, '/');
-        const raw = Uint8Array.from(atob(key + '=='.slice((key.length + 3) % 4 ? 0 : 2)), c => c.charCodeAt(0));
+        // base64url → Uint8Array
+        const b64 = vapid_public_key.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '=='.slice((b64.length + 3) % 4 ? 0 : 2);
+        const raw = Uint8Array.from(atob(padded), c => c.charCodeAt(0));
 
-        // Подписываемся (или получаем существующую подписку)
         const sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: raw,
         });
 
-        // Отправляем подписку на бэкенд
         await api.subscribePush(sub.toJSON() as PushSubscriptionJSON);
+        subscribedRef.current = true;
+        console.log('[Push] Subscribed successfully');
       } catch (e) {
-        console.error('Push subscription error:', e);
-        doneRef.current = false;
+        console.error('[Push] Subscription error:', e);
       }
-    })();
-  }, [userId]);
+    };
 
-  // Переподписываемся если разрешение только что выдано
-  useEffect(() => {
-    if (!userId) return;
+    // Сразу пробуем
+    trySubscribe();
+
+    // Повторяем каждые 5 сек пока не подпишемся (ждём выдачи разрешения)
     const interval = setInterval(() => {
-      if (Notification.permission === 'granted' && !doneRef.current) {
-        doneRef.current = false; // сбросим чтобы useEffect выше перезапустился
-      }
-    }, 3000);
+      if (!subscribedRef.current) trySubscribe();
+      else clearInterval(interval);
+    }, 5000);
+
     return () => clearInterval(interval);
   }, [userId]);
 }

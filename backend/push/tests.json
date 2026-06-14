@@ -12,7 +12,7 @@
       "method": "GET",
       "path": "/?action=vapid-key",
       "expectedStatus": 200,
-      "expectedBody": {"vapid_public_key": "string"},
+      "expectedBody": {"vapid_public_key": "BEKkGUF_CFNpBZw13iVlHwNSlCiO7X4oyYgbH9KymIqFJdmbW-CEu7nETSSs3edNxDkF7E1APyMkUihOrPD3xGc"},
       "bodyMatcher": "partial"
     },
     {
