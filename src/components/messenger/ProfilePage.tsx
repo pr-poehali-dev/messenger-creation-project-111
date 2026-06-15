@@ -1,14 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import Avatar from './Avatar';
 import { useAuth } from '@/context/useAuth';
+import { api } from '@/api/client';
 
 const ProfilePage: React.FC = () => {
   const { user, updateUser, logout } = useAuth();
-  const [notifications, setNotifications] = useState(true);
   const [sounds, setSounds] = useState(true);
   const [preview, setPreview] = useState(true);
   const [name, setName] = useState(user?.name || '');
+
+  // Реальный статус push-уведомлений
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+  );
+  const [pushLoading, setPushLoading] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (typeof Notification !== 'undefined' && Notification.permission !== pushPermission) {
+        setPushPermission(Notification.permission);
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [pushPermission]);
+
+  const handleTogglePush = async () => {
+    if (pushPermission === 'denied') return; // браузер заблокировал — ничего не сделать
+    if (pushPermission === 'granted') {
+      // Отписываемся
+      setPushLoading(true);
+      try {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) await sub.unsubscribe();
+        }
+        await api.unsubscribePush?.();
+      } catch { /* ignore */ }
+      finally { setPushLoading(false); }
+      return;
+    }
+    // Запрашиваем разрешение и подписываемся
+    setPushLoading(true);
+    try {
+      const result = await Notification.requestPermission();
+      setPushPermission(result);
+      if (result === 'granted') {
+        const reg = await navigator.serviceWorker.ready;
+        const { vapid_public_key } = await api.getPushVapidKey() as { vapid_public_key: string };
+        const b64 = vapid_public_key.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '=='.slice((b64.length + 3) % 4 ? 0 : 2);
+        const raw = Uint8Array.from(atob(padded), c => c.charCodeAt(0));
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw });
+        await api.subscribePush(sub.toJSON() as PushSubscriptionJSON);
+      }
+    } catch { /* ignore */ }
+    finally { setPushLoading(false); }
+  };
   const [bio, setBio] = useState(user?.bio || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [editing, setEditing] = useState(false);
@@ -114,7 +164,43 @@ const ProfilePage: React.FC = () => {
         <div className="rounded-2xl overflow-hidden mb-4" style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}>
           <div className="px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'hsl(var(--muted-foreground))' }}>Уведомления</p>
-            <ToggleRow label="Push-уведомления" icon="Bell" value={notifications} onChange={setNotifications} />
+
+            {/* Push row */}
+            <div className="flex items-center justify-between py-2.5" style={{ borderBottom: '1px solid var(--glass-border)' }}>
+              <div className="flex items-center gap-3 min-w-0">
+                <Icon name="Bell" size={16} style={{ color: pushPermission === 'granted' ? 'var(--neon-purple)' : 'hsl(var(--muted-foreground))', flexShrink: 0 }} />
+                <div className="min-w-0">
+                  <span className="text-sm text-white">Push-уведомления</span>
+                  {pushPermission === 'denied' && (
+                    <p className="text-xs mt-0.5" style={{ color: '#f87171' }}>Заблокированы в браузере</p>
+                  )}
+                  {pushPermission === 'default' && (
+                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Нажмите чтобы включить</p>
+                  )}
+                </div>
+              </div>
+              {pushPermission === 'denied' ? (
+                <span className="text-xs px-2 py-1 rounded-lg flex-shrink-0" style={{ color: '#f87171', background: 'rgba(239,68,68,0.1)' }}>
+                  Блок
+                </span>
+              ) : (
+                <button
+                  onClick={handleTogglePush}
+                  disabled={pushLoading}
+                  className="relative w-10 h-5 rounded-full transition-all duration-300 flex-shrink-0 disabled:opacity-60"
+                  style={{
+                    background: pushPermission === 'granted' ? 'linear-gradient(135deg, var(--neon-purple), var(--neon-cyan))' : 'var(--surface-4)',
+                    boxShadow: pushPermission === 'granted' ? '0 0 10px rgba(139,92,246,0.4)' : 'none',
+                  }}
+                >
+                  {pushLoading
+                    ? <div className="absolute inset-0 flex items-center justify-center"><Icon name="Loader2" size={12} className="animate-spin text-white" /></div>
+                    : <div className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-md transition-all duration-300" style={{ left: pushPermission === 'granted' ? 22 : 2 }} />
+                  }
+                </button>
+              )}
+            </div>
+
             <ToggleRow label="Звуки" icon="Volume2" value={sounds} onChange={setSounds} />
             <ToggleRow label="Предпросмотр" icon="Eye" value={preview} onChange={setPreview} last />
           </div>

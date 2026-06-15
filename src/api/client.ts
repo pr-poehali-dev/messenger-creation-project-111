@@ -154,4 +154,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(subscription),
     }),
+
+  unsubscribePush: () =>
+    request('push', '/?action=unsubscribe', { method: 'POST', body: '{}' }),
 };
