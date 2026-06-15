@@ -180,9 +180,15 @@ def handler(event: dict, context) -> dict:
                            EXISTS(
                                SELECT 1 FROM {SCHEMA}.message_reads mr
                                WHERE mr.message_id = m.id AND mr.user_id != m.sender_id LIMIT 1
-                           ) as is_read
+                           ) as is_read,
+                           m.reply_to_id,
+                           ru.name as reply_sender_name,
+                           rm.text as reply_text,
+                           rm.type as reply_type
                     FROM {SCHEMA}.messages m
                     LEFT JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                    LEFT JOIN {SCHEMA}.messages rm ON rm.id = m.reply_to_id
+                    LEFT JOIN {SCHEMA}.users ru ON ru.id = rm.sender_id
                     WHERE m.chat_id = %s
                     ORDER BY m.created_at ASC
                     LIMIT %s OFFSET %s
@@ -209,9 +215,17 @@ def handler(event: dict, context) -> dict:
 
             msgs = []
             for r in rows:
-                mid, sid, text, mtype, furl, fname, ts, sname, savatar, is_read = r
+                mid, sid, text, mtype, furl, fname, ts, sname, savatar, is_read, reply_to_id, reply_sender_name, reply_text, reply_type = r
                 raw = reactions_map.get(mid, {})
                 reactions = [{'emoji': e, 'count': v['count'], 'me': v['me']} for e, v in raw.items()]
+                reply_to = None
+                if reply_to_id:
+                    reply_to = {
+                        'id': reply_to_id,
+                        'senderName': reply_sender_name or '',
+                        'text': reply_text or '',
+                        'type': reply_type or 'text',
+                    }
                 msgs.append({
                     'id': mid, 'senderId': sid, 'isMe': sid == user_id,
                     'senderName': sname or '', 'senderAvatar': savatar or '1',
@@ -219,6 +233,7 @@ def handler(event: dict, context) -> dict:
                     'fileUrl': furl, 'fileName': fname,
                     'time': ts.strftime('%H:%M'), 'read': bool(is_read),
                     'reactions': reactions,
+                    'replyTo': reply_to,
                 })
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'messages': msgs})}
 
@@ -289,6 +304,9 @@ def handler(event: dict, context) -> dict:
             file_url = body.get('file_url', None)
             file_name = body.get('file_name', None)
             msg_type = body.get('type', 'text')
+            reply_to_id = body.get('reply_to_id', None)
+            if reply_to_id:
+                reply_to_id = int(reply_to_id)
 
             if not chat_id or (not text and not file_url):
                 return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Укажите chat_id и text или файл'})}
@@ -320,9 +338,9 @@ def handler(event: dict, context) -> dict:
 
             with conn.cursor() as cur:
                 cur.execute(
-                    f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, type, file_url, file_name) "
-                    f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, created_at",
-                    (chat_id, user_id, stored_text, msg_type, file_url, file_name)
+                    f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, type, file_url, file_name, reply_to_id) "
+                    f"VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id, created_at",
+                    (chat_id, user_id, stored_text, msg_type, file_url, file_name, reply_to_id)
                 )
                 msg_id, created_at = cur.fetchone()
                 cur.execute(
@@ -331,6 +349,17 @@ def handler(event: dict, context) -> dict:
                 )
                 cur.execute(f"SELECT name, avatar_seed FROM {SCHEMA}.users WHERE id = %s", (user_id,))
                 urow = cur.fetchone()
+                # Данные цитируемого сообщения
+                reply_to_data = None
+                if reply_to_id:
+                    cur.execute(
+                        f"SELECT m.text, m.type, u.name FROM {SCHEMA}.messages m "
+                        f"LEFT JOIN {SCHEMA}.users u ON u.id = m.sender_id WHERE m.id = %s",
+                        (reply_to_id,)
+                    )
+                    rrow = cur.fetchone()
+                    if rrow:
+                        reply_to_data = {'id': reply_to_id, 'senderName': rrow[2] or '', 'text': rrow[0] or '', 'type': rrow[1] or 'text'}
                 # Получаем всех участников чата кроме отправителя для push
                 cur.execute(
                     f"SELECT user_id FROM {SCHEMA}.chat_members WHERE chat_id = %s AND user_id != %s",
@@ -370,6 +399,7 @@ def handler(event: dict, context) -> dict:
                     'text': stored_text, 'type': msg_type,
                     'fileUrl': file_url, 'fileName': file_name,
                     'time': created_at.strftime('%H:%M'), 'read': False,
+                    'reactions': [], 'replyTo': reply_to_data,
                 }
             })}
 

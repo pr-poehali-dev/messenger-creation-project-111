@@ -20,6 +20,13 @@ export interface MessageReaction {
   me: boolean;
 }
 
+export interface ReplyTo {
+  id: number;
+  senderName: string;
+  text: string;
+  type: string;
+}
+
 export interface ApiMessage {
   id: number;
   senderId: number;
@@ -33,6 +40,7 @@ export interface ApiMessage {
   time: string;
   read: boolean;
   reactions: MessageReaction[];
+  replyTo: ReplyTo | null;
 }
 
 // Глобальный polling — один на всё приложение
@@ -190,9 +198,9 @@ export function useMessages(chatId: number | null) {
     };
   }, [chatId, fetchMessages]);
 
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string, replyToId?: number) => {
     if (!chatId) return;
-    const data = await api.sendMessage(chatId, text);
+    const data = await api.sendMessage(chatId, text, 'text', replyToId);
     const msg = data.message as ApiMessage;
     setMessages(prev => [...prev, msg]);
   };

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { useMessages, ApiChat } from '@/hooks/useChats';
+import { useMessages, ApiChat, ReplyTo } from '@/hooks/useChats';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { api } from '@/api/client';
 import ChatHeader from './ChatHeader';
@@ -18,6 +18,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockedByOther, setBlockedByOther] = useState(false);
+  const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
 
   const chatName = chat?.name || '...';
   const chatAvatar = chat?.avatar || '1';
@@ -50,8 +51,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
     webrtc.startCall(otherUserId, type, callId);
   };
 
-  const handleSendText = async (text: string) => {
-    await sendMessage(text);
+  const handleSendText = async (text: string, replyToId?: number) => {
+    await sendMessage(text, replyToId);
+    setReplyTo(null);
   };
 
   const handleSendFile = async (url: string, name: string, isImage: boolean, type?: string) => {
@@ -86,6 +88,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
         chatType={chatType}
         onCallback={handleCall}
         onReactionUpdate={updateMessageReactions}
+        onReply={setReplyTo}
       />
       <MessageInput
         onSendText={handleSendText}
@@ -94,6 +97,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
         onExternalFileHandled={() => setDroppedFile(null)}
         isBlocked={isBlocked}
         isBlockedByOther={blockedByOther}
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 import Avatar from './Avatar';
-import { ApiMessage, MessageReaction } from '@/hooks/useChats';
+import { ApiMessage, MessageReaction, ReplyTo } from '@/hooks/useChats';
 import { api } from '@/api/client';
 
 interface MessageListProps {
@@ -10,11 +10,11 @@ interface MessageListProps {
   chatType: string;
   onCallback: (type: 'voice' | 'video') => void;
   onReactionUpdate: (messageId: number, reactions: MessageReaction[]) => void;
+  onReply: (msg: ReplyTo) => void;
 }
 
 const QUICK_EMOJIS = ['❤️', '👍', '😂', '😮', '😢', '🔥'];
 
-// Пикер эмодзи
 const EmojiPicker: React.FC<{
   onSelect: (emoji: string) => void;
   onClose: () => void;
@@ -38,7 +38,6 @@ const EmojiPicker: React.FC<{
           key={e}
           onClick={() => { onSelect(e); onClose(); }}
           className="w-8 h-8 flex items-center justify-center rounded-xl text-lg transition-all hover:scale-125 active:scale-95"
-          style={{ background: 'transparent' }}
         >
           {e}
         </button>
@@ -47,7 +46,6 @@ const EmojiPicker: React.FC<{
   </>
 );
 
-// Реакции под сообщением
 const ReactionsBar: React.FC<{
   reactions: MessageReaction[];
   messageId: number;
@@ -55,7 +53,6 @@ const ReactionsBar: React.FC<{
   onUpdate: (reactions: MessageReaction[]) => void;
 }> = ({ reactions, messageId, isMe, onUpdate }) => {
   if (reactions.length === 0) return null;
-
   const handleClick = async (r: MessageReaction) => {
     try {
       const res = r.me
@@ -64,7 +61,6 @@ const ReactionsBar: React.FC<{
       onUpdate((res as { reactions: MessageReaction[] }).reactions);
     } catch { /* ignore */ }
   };
-
   return (
     <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
       {reactions.map(r => (
@@ -86,12 +82,31 @@ const ReactionsBar: React.FC<{
   );
 };
 
+// Блок цитаты внутри пузыря
+const ReplyBlock: React.FC<{ replyTo: ReplyTo; isMe: boolean }> = ({ replyTo, isMe }) => (
+  <div
+    className="flex items-start gap-1.5 mb-1.5 px-2 py-1.5 rounded-xl text-xs"
+    style={{
+      background: isMe ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.08)',
+      borderLeft: '2px solid var(--neon-cyan)',
+    }}
+  >
+    <div className="min-w-0">
+      <p className="font-semibold truncate mb-0.5" style={{ color: 'var(--neon-cyan)' }}>{replyTo.senderName}</p>
+      <p className="truncate" style={{ color: 'rgba(255,255,255,0.65)' }}>
+        {replyTo.type === 'image' ? '🖼 Фото' : replyTo.type === 'file' ? '📎 Файл' : replyTo.type === 'voice' ? '🎵 Голосовое' : replyTo.text}
+      </p>
+    </div>
+  </div>
+);
+
 const MessageBubble: React.FC<{
   msg: ApiMessage;
   isMe: boolean;
   onCallback?: (type: 'voice' | 'video') => void;
   onReactionUpdate: (messageId: number, reactions: MessageReaction[]) => void;
-}> = ({ msg, isMe, onCallback, onReactionUpdate }) => {
+  onReply: (msg: ReplyTo) => void;
+}> = ({ msg, isMe, onCallback, onReactionUpdate, onReply }) => {
   const [imgError, setImgError] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,7 +123,6 @@ const MessageBubble: React.FC<{
     } catch { /* ignore */ }
   }, [msg.id, msg.reactions, onReactionUpdate]);
 
-  // Долгое нажатие для мобильных
   const onTouchStart = () => {
     longPressRef.current = setTimeout(() => setShowPicker(true), 500);
   };
@@ -116,14 +130,24 @@ const MessageBubble: React.FC<{
     if (longPressRef.current) clearTimeout(longPressRef.current);
   };
 
+  const handleReply = () => {
+    onReply({
+      id: msg.id,
+      senderName: msg.senderName || 'Вы',
+      text: msg.text,
+      type: msg.type,
+    });
+  };
+
+  const replyBlock = msg.replyTo ? <ReplyBlock replyTo={msg.replyTo} isMe={isMe} /> : null;
+
   const bubbleContent = (() => {
     if (msg.type === 'image' && msg.fileUrl && !imgError) {
       return (
-        <div className={`overflow-hidden ${isMe ? 'rounded-[18px_18px_4px_18px]' : 'rounded-[18px_18px_18px_4px]'}`}
-          style={{ maxWidth: 260 }}>
+        <div className={`overflow-hidden ${isMe ? 'rounded-[18px_18px_4px_18px]' : 'rounded-[18px_18px_18px_4px]'}`} style={{ maxWidth: 260 }}>
+          {replyBlock && <div className="px-2 pt-2">{replyBlock}</div>}
           <img
-            src={msg.fileUrl}
-            alt={msg.fileName || 'изображение'}
+            src={msg.fileUrl} alt={msg.fileName || 'изображение'}
             className="block w-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
             style={{ maxHeight: 300 }}
             onError={() => setImgError(true)}
@@ -145,12 +169,9 @@ const MessageBubble: React.FC<{
         <div className={`flex items-center gap-2.5 px-3 py-2 ${bubbleClass}`} style={{ minWidth: 180 }}>
           <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
             style={{ background: isMissed ? 'rgba(239,68,68,0.25)' : isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-4)' }}>
-            <Icon name={isVideo ? 'Video' : 'Phone'} size={13}
-              style={{ color: isMissed ? '#f87171' : 'white' }} />
+            <Icon name={isVideo ? 'Video' : 'Phone'} size={13} style={{ color: isMissed ? '#f87171' : 'white' }} />
           </div>
-          <span className="text-sm flex-1" style={{ color: isMissed ? (isMe ? '#fca5a5' : '#f87171') : 'white' }}>
-            {msg.text}
-          </span>
+          <span className="text-sm flex-1" style={{ color: isMissed ? (isMe ? '#fca5a5' : '#f87171') : 'white' }}>{msg.text}</span>
           {onCallback && (
             <button onClick={() => onCallback(isVideo ? 'video' : 'voice')}
               className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition-all hover:scale-110"
@@ -164,37 +185,42 @@ const MessageBubble: React.FC<{
 
     if (msg.type === 'voice' && msg.fileUrl) {
       return (
-        <div className={`flex items-center gap-3 px-3 py-2.5 ${bubbleClass}`} style={{ minWidth: 200, maxWidth: 280 }}>
-          <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-4)' }}>
-            <Icon name="Mic" size={15} className="text-white" />
+        <div className={`flex flex-col px-3 py-2.5 ${bubbleClass}`} style={{ minWidth: 200, maxWidth: 280 }}>
+          {replyBlock}
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-4)' }}>
+              <Icon name="Mic" size={15} className="text-white" />
+            </div>
+            <audio src={msg.fileUrl} controls className="flex-1 h-7" style={{ minWidth: 0 }} />
           </div>
-          <audio src={msg.fileUrl} controls className="flex-1 h-7" style={{ minWidth: 0 }} />
         </div>
       );
     }
 
     if (msg.type === 'file' && msg.fileUrl) {
       return (
-        <a href={msg.fileUrl} target="_blank" rel="noreferrer"
-          className={`flex items-center gap-3 px-4 py-3 no-underline ${bubbleClass}`}
-          style={{ minWidth: 200, maxWidth: 280 }}>
-          <div className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--surface-4)' }}>
-            <Icon name="FileText" size={20} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">{msg.fileName || msg.text}</p>
-            <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: 'rgba(255,255,255,0.6)' }}>
-              <Icon name="Download" size={11} />Скачать
-            </p>
-          </div>
-        </a>
+        <div className={`flex flex-col px-4 py-3 ${bubbleClass}`} style={{ minWidth: 200, maxWidth: 280 }}>
+          {replyBlock}
+          <a href={msg.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 no-underline">
+            <div className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--surface-4)' }}>
+              <Icon name="FileText" size={20} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{msg.fileName || msg.text}</p>
+              <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                <Icon name="Download" size={11} />Скачать
+              </p>
+            </div>
+          </a>
+        </div>
       );
     }
 
     return (
       <div className={`px-4 py-2.5 ${bubbleClass}`}>
+        {replyBlock}
         <p className="text-sm leading-relaxed" style={{ wordBreak: 'break-word' }}>{msg.text}</p>
       </div>
     );
@@ -208,15 +234,28 @@ const MessageBubble: React.FC<{
     >
       {bubbleContent}
 
-      {/* Кнопка реакции — появляется при hover на десктопе */}
-      <button
-        onClick={() => setShowPicker(p => !p)}
-        className={`absolute -top-3 opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 rounded-full flex items-center justify-center text-xs
+      {/* Кнопки hover: реакция + ответить */}
+      <div
+        className={`absolute -top-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1
           ${isMe ? 'left-0 -translate-x-full -ml-1' : 'right-0 translate-x-full ml-1'}`}
-        style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}
       >
-        😊
-      </button>
+        <button
+          onClick={handleReply}
+          className="w-6 h-6 rounded-full flex items-center justify-center"
+          style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}
+          title="Ответить"
+        >
+          <Icon name="CornerUpLeft" size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
+        </button>
+        <button
+          onClick={() => setShowPicker(p => !p)}
+          className="w-6 h-6 rounded-full flex items-center justify-center text-xs"
+          style={{ background: 'var(--surface-3)', border: '1px solid var(--glass-border)' }}
+          title="Реакция"
+        >
+          😊
+        </button>
+      </div>
 
       {showPicker && (
         <EmojiPicker
@@ -229,7 +268,7 @@ const MessageBubble: React.FC<{
   );
 };
 
-const MessageList: React.FC<MessageListProps> = ({ messages, chatId, chatType, onCallback, onReactionUpdate }) => {
+const MessageList: React.FC<MessageListProps> = ({ messages, chatId, chatType, onCallback, onReactionUpdate, onReply }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef<number>(0);
   const isInitialRef = useRef<boolean>(true);
@@ -298,6 +337,7 @@ const MessageList: React.FC<MessageListProps> = ({ messages, chatId, chatType, o
                 isMe={msg.isMe}
                 onCallback={onCallback}
                 onReactionUpdate={onReactionUpdate}
+                onReply={onReply}
               />
               <ReactionsBar
                 reactions={msg.reactions || []}

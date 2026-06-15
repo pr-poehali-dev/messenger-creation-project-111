@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { api } from '@/api/client';
+import { ReplyTo } from '@/hooks/useChats';
 
 export const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': 'image',
@@ -43,15 +44,17 @@ export interface FilePreview {
 }
 
 interface MessageInputProps {
-  onSendText: (text: string) => Promise<void>;
+  onSendText: (text: string, replyToId?: number) => Promise<void>;
   onSendFile: (url: string, name: string, isImage: boolean, type?: string) => Promise<void>;
   externalFile?: File | null;
   onExternalFileHandled?: () => void;
   isBlocked?: boolean;
   isBlockedByOther?: boolean;
+  replyTo?: ReplyTo | null;
+  onCancelReply?: () => void;
 }
 
-const MessageInput: React.FC<MessageInputProps> = ({ onSendText, onSendFile, externalFile, onExternalFileHandled, isBlocked, isBlockedByOther }) => {
+const MessageInput: React.FC<MessageInputProps> = ({ onSendText, onSendFile, externalFile, onExternalFileHandled, isBlocked, isBlockedByOther, replyTo, onCancelReply }) => {
   const voice = useVoiceRecorder();
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
@@ -96,13 +99,16 @@ const MessageInput: React.FC<MessageInputProps> = ({ onSendText, onSendFile, ext
   const handleSend = async () => {
     if (filePreview) {
       await handleSendFile(filePreview);
+      onCancelReply?.();
       return;
     }
     if (!text.trim()) return;
     const t = text.trim();
+    const replyId = replyTo?.id;
     setText('');
+    onCancelReply?.();
     try {
-      await onSendText(t);
+      await onSendText(t, replyId);
     } catch {
       setText(t);
     }
@@ -182,6 +188,29 @@ const MessageInput: React.FC<MessageInputProps> = ({ onSendText, onSendFile, ext
       className="px-4 pt-3 pb-3 flex-shrink-0"
       style={{ background: 'var(--surface-2)', borderTop: '1px solid var(--glass-border)', paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)' }}
     >
+      {/* Reply preview */}
+      {replyTo && (
+        <div
+          className="mb-2 px-3 py-2 rounded-xl flex items-center gap-2 animate-fade-in"
+          style={{ background: 'var(--surface-3)', borderLeft: '3px solid var(--neon-purple)' }}
+        >
+          <Icon name="CornerUpLeft" size={14} style={{ color: 'var(--neon-purple)', flexShrink: 0 }} />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold truncate" style={{ color: 'var(--neon-cyan)' }}>{replyTo.senderName}</p>
+            <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {replyTo.type === 'image' ? '🖼 Фото' : replyTo.type === 'file' ? '📎 Файл' : replyTo.type === 'voice' ? '🎵 Голосовое' : replyTo.text}
+            </p>
+          </div>
+          <button
+            onClick={onCancelReply}
+            className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center"
+            style={{ color: 'hsl(var(--muted-foreground))', background: 'var(--surface-4)' }}
+          >
+            <Icon name="X" size={12} />
+          </button>
+        </div>
+      )}
+
       {/* File preview */}
       {filePreview && (
         <div
