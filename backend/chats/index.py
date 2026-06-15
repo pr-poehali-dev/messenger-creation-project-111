@@ -189,17 +189,80 @@ def handler(event: dict, context) -> dict:
                 """, (chat_id, limit, offset))
                 rows = cur.fetchall()
 
+                # Реакции для всех сообщений чата
+                msg_ids = [r[0] for r in rows]
+                reactions_map = {}
+                if msg_ids:
+                    cur.execute(f"""
+                        SELECT r.message_id, r.emoji, r.user_id
+                        FROM {SCHEMA}.message_reactions r
+                        WHERE r.message_id = ANY(%s)
+                    """, (msg_ids,))
+                    for rmid, remoji, ruid in cur.fetchall():
+                        if rmid not in reactions_map:
+                            reactions_map[rmid] = {}
+                        if remoji not in reactions_map[rmid]:
+                            reactions_map[rmid][remoji] = {'count': 0, 'me': False}
+                        reactions_map[rmid][remoji]['count'] += 1
+                        if ruid == user_id:
+                            reactions_map[rmid][remoji]['me'] = True
+
             msgs = []
             for r in rows:
                 mid, sid, text, mtype, furl, fname, ts, sname, savatar, is_read = r
+                raw = reactions_map.get(mid, {})
+                reactions = [{'emoji': e, 'count': v['count'], 'me': v['me']} for e, v in raw.items()]
                 msgs.append({
                     'id': mid, 'senderId': sid, 'isMe': sid == user_id,
                     'senderName': sname or '', 'senderAvatar': savatar or '1',
                     'text': text, 'type': mtype,
                     'fileUrl': furl, 'fileName': fname,
                     'time': ts.strftime('%H:%M'), 'read': bool(is_read),
+                    'reactions': reactions,
                 })
             return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'messages': msgs})}
+
+        # POST/DELETE ?action=reactions — поставить или убрать реакцию
+        if action == 'reactions':
+            body = json.loads(event.get('body') or '{}')
+            message_id = int(body.get('message_id', 0))
+            emoji = body.get('emoji', '').strip()
+            if not message_id or not emoji:
+                return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'message_id и emoji обязательны'})}
+
+            with conn.cursor() as cur:
+                # Проверяем доступ к чату через сообщение
+                cur.execute(f"""
+                    SELECT cm.chat_id FROM {SCHEMA}.messages m
+                    JOIN {SCHEMA}.chat_members cm ON cm.chat_id = m.chat_id AND cm.user_id = %s
+                    WHERE m.id = %s
+                """, (user_id, message_id))
+                if not cur.fetchone():
+                    return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Нет доступа'})}
+
+                if method == 'DELETE':
+                    cur.execute(
+                        f"DELETE FROM {SCHEMA}.message_reactions WHERE message_id = %s AND user_id = %s AND emoji = %s",
+                        (message_id, user_id, emoji)
+                    )
+                else:
+                    cur.execute(
+                        f"INSERT INTO {SCHEMA}.message_reactions (message_id, user_id, emoji) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                        (message_id, user_id, emoji)
+                    )
+                conn.commit()
+
+                # Возвращаем актуальные реакции на сообщение
+                cur.execute(f"""
+                    SELECT emoji, COUNT(*) as cnt,
+                           BOOL_OR(user_id = %s) as me
+                    FROM {SCHEMA}.message_reactions
+                    WHERE message_id = %s
+                    GROUP BY emoji
+                """, (user_id, message_id))
+                reactions = [{'emoji': e, 'count': c, 'me': m} for e, c, m in cur.fetchall()]
+
+            return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True, 'reactions': reactions})}
 
         # POST ?action=read
         if method == 'POST' and action == 'read':

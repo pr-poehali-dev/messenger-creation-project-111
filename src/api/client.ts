@@ -157,4 +157,17 @@ export const api = {
 
   unsubscribePush: () =>
     request('push', '/?action=unsubscribe', { method: 'POST', body: '{}' }),
+
+  // ---- Reactions ----
+  addReaction: (messageId: number, emoji: string) =>
+    request('chats', '/?action=reactions', {
+      method: 'POST',
+      body: JSON.stringify({ message_id: messageId, emoji }),
+    }),
+
+  removeReaction: (messageId: number, emoji: string) =>
+    request('chats', '/?action=reactions', {
+      method: 'DELETE',
+      body: JSON.stringify({ message_id: messageId, emoji }),
+    }),
 };

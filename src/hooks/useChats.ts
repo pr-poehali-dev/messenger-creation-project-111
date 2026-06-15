@@ -14,6 +14,12 @@ export interface ApiChat {
   otherUserId?: number;
 }
 
+export interface MessageReaction {
+  emoji: string;
+  count: number;
+  me: boolean;
+}
+
 export interface ApiMessage {
   id: number;
   senderId: number;
@@ -26,6 +32,7 @@ export interface ApiMessage {
   fileName: string | null;
   time: string;
   read: boolean;
+  reactions: MessageReaction[];
 }
 
 // Глобальный polling — один на всё приложение
@@ -198,7 +205,11 @@ export function useMessages(chatId: number | null) {
     setMessages(prev => [...prev, msg]);
   };
 
-  return { messages, loading, sendMessage, sendFileMessage, refetch: fetchMessages };
+  const updateMessageReactions = useCallback((messageId: number, reactions: MessageReaction[]) => {
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+  }, []);
+
+  return { messages, loading, sendMessage, sendFileMessage, updateMessageReactions, refetch: fetchMessages };
 }
 
 export function useUsers(q?: string) {

@@ -14,7 +14,7 @@ interface ChatWindowProps {
 }
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack }) => {
-  const { messages, sendMessage, sendFileMessage } = useMessages(chatId);
+  const { messages, sendMessage, sendFileMessage, updateMessageReactions } = useMessages(chatId);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockedByOther, setBlockedByOther] = useState(false);
@@ -85,6 +85,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, chat, webrtc, onBack })
         chatId={chatId}
         chatType={chatType}
         onCallback={handleCall}
+        onReactionUpdate={updateMessageReactions}
       />
       <MessageInput
         onSendText={handleSendText}
