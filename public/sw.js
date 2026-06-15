@@ -1,17 +1,10 @@
-const CACHE = 'pulse-v3';
-const STATIC = [
-  '/',
-  '/pwa-icon.svg',
-  '/pwa-icon-192.png',
-  '/pwa-icon-512.png',
-  '/manifest.webmanifest',
-];
+const CACHE = 'pulse-v4';
 
-// Установка — кэшируем статику
+// Установка — минимальный кэш
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(c => c.addAll(STATIC))
+      .then(c => c.addAll(['/manifest.webmanifest']))
       .then(() => self.skipWaiting())
   );
 });
@@ -28,15 +21,13 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // API и сторонние запросы — только сеть
-  if (
-    e.request.method !== 'GET' ||
-    url.hostname.includes('functions.poehali.dev') ||
-    url.hostname.includes('mc.yandex.ru') ||
-    url.hostname.includes('cdn.poehali.dev')
-  ) return;
+  // Только GET запросы к своему домену
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // Шрифты Google — cache first (долго живут)
+  // JS/CSS с хэшем в имени — всегда только сеть (иммутабельны, не кэшируем в SW)
+  if (url.pathname.startsWith('/assets/')) return;
+
+  // Шрифты Google — cache first
   if (url.hostname.includes('fonts.googleapis.com') || url.hostname.includes('fonts.gstatic.com')) {
     e.respondWith(
       caches.open(CACHE).then(c =>
@@ -48,21 +39,30 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Всё остальное — network first, fallback cache
+  // Иконки и манифест — cache first
+  if (
+    url.pathname.startsWith('/pwa-icon') ||
+    url.pathname === '/manifest.webmanifest' ||
+    url.pathname === '/favicon.svg'
+  ) {
+    e.respondWith(
+      caches.open(CACHE).then(c =>
+        c.match(e.request).then(cached =>
+          cached || fetch(e.request).then(res => { c.put(e.request, res.clone()); return res; })
+        )
+      )
+    );
+    return;
+  }
+
+  // HTML (/) — всегда сеть, fallback на кэш только при офлайне
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        if (res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
+        if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
         return res;
       })
-      .catch(() =>
-        caches.match(e.request).then(cached =>
-          cached || caches.match('/')
-        )
-      )
+      .catch(() => caches.match(e.request))
   );
 });
 
