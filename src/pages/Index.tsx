@@ -56,7 +56,7 @@ const Index: React.FC = () => {
   const webrtc = useWebRTC(user?.id ?? null, handleCallEnd);
 
   useNewMessageNotifications(chats, activeChatId);
-  usePushSubscription(user?.id ?? null);
+  usePushSubscription(user?.id ?? null, permission);
   useHeartbeat(user?.id ?? null);
 
   useEffect(() => {

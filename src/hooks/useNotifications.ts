@@ -1,15 +1,31 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 
 export function useNotificationPermission() {
+  const [permission, setPermission] = useState<NotificationPermission>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+  );
+
+  useEffect(() => {
+    if (!('Notification' in window)) return;
+    // Polling — Notification API не имеет события изменения
+    const interval = setInterval(() => {
+      if (Notification.permission !== permission) {
+        setPermission(Notification.permission);
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [permission]);
+
   const request = useCallback(async (): Promise<boolean> => {
     if (!('Notification' in window)) return false;
-    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'granted') { setPermission('granted'); return true; }
     if (Notification.permission === 'denied') return false;
     const result = await Notification.requestPermission();
+    setPermission(result);
     return result === 'granted';
   }, []);
 
-  return { permission: typeof Notification !== 'undefined' ? Notification.permission : 'denied', request };
+  return { permission, request };
 }
 
 export function useNewMessageNotifications(
